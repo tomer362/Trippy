@@ -17,6 +17,10 @@
   --destructive: oklch(58% 0.21 27);
   --border: oklch(91% 0.01 60);
   --ring: oklch(66% 0.19 32);
+  /* Chart marks: one hue, validated for contrast against the light surface. */
+  --chart-mark: #e04b26;
+  --chart-track: oklch(93% 0.015 60);
+  --chart-grid: oklch(90% 0.01 60);
   --sunset-a: oklch(90% 0.06 20);
   --sunset-b: oklch(92% 0.07 70);
   --sunset-c: oklch(96% 0.02 60);
@@ -37,6 +41,10 @@
   --destructive: oklch(65% 0.2 27);
   --border: oklch(30% 0.015 260);
   --ring: oklch(72% 0.17 32);
+  /* Re-stepped for the dark surface rather than flipped. */
+  --chart-mark: #e8603d;
+  --chart-track: oklch(30% 0.02 260);
+  --chart-grid: oklch(32% 0.015 260);
   --sunset-a: oklch(30% 0.06 20);
   --sunset-b: oklch(28% 0.06 70);
   --sunset-c: oklch(18% 0.02 60);
@@ -56,6 +64,9 @@
   --color-destructive: var(--destructive);
   --color-border: var(--border);
   --color-ring: var(--ring);
+  --color-chart-mark: var(--chart-mark);
+  --color-chart-track: var(--chart-track);
+  --color-chart-grid: var(--chart-grid);
   --font-sans:
     ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --radius-xl: calc(var(--radius) + 0.25rem);
