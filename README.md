@@ -28,6 +28,11 @@ pnpm dev
 | `pnpm db:seed` | Upsert `data/destinations.json` |
 | `pnpm db:enrich` | Optional: expand destinations from GeoNames + Wikidata (run locally) |
 
+## Exports
+
+Every trip can leave the app: print or PDF from the browser, `.ics` for your calendar, and
+CSV for places and expenses. All four are in the trip's overflow menu.
+
 ## Stack
 
 Next.js 16 (App Router, Server Actions) · TypeScript · Tailwind v4 · better-auth (Google) ·

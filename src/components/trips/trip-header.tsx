@@ -138,6 +138,21 @@ export function TripHeader({
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuItem onSelect={() => window.print()}>Print / PDF</DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <a href={`/api/trips/${trip.id}/export/calendar`} download>
+                    Add to calendar (.ics)
+                  </a>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <a href={`/api/trips/${trip.id}/export/places`} download>
+                    Export places (CSV)
+                  </a>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <a href={`/api/trips/${trip.id}/export/expenses`} download>
+                    Export expenses (CSV)
+                  </a>
+                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={share}>
                   <Share2 /> Share link

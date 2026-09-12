@@ -13,7 +13,7 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 import { arrayMove, sortableKeyboardCoordinates } from "@dnd-kit/sortable";
-import { Copy, FolderInput, ListPlus, Plus, Trash2, X } from "lucide-react";
+import { Copy, FolderInput, ListPlus, Plus, Trash2, Upload, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
@@ -35,6 +35,7 @@ import {
 } from "@/server/actions/places";
 import type { BBox } from "@/server/db/schema/geo";
 import type { TripListDTO, TripPlaceDTO } from "@/server/queries/places";
+import { ImportSheet } from "./import-sheet";
 import { ListSection } from "./list-section";
 import { type DayOption, MoveToSheet } from "./move-to-sheet";
 import { PlaceDetailSheet } from "./place-detail-sheet";
@@ -79,6 +80,7 @@ export function PlacesBoard({
   const [moveIds, setMoveIds] = useState<string[] | null>(null);
   const [layersOpen, setLayersOpen] = useState(false);
   const [focusedId, setFocusedId] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
 
   useEffect(
     () => setLists(withUnlisted(initialLists, initialUnlisted)),
@@ -257,6 +259,9 @@ export function PlacesBoard({
           >
             <ListPlus /> New list
           </Button>
+          <Button variant="outline" onClick={() => setImporting(true)} aria-label="Import places">
+            <Upload />
+          </Button>
         </div>
       )}
       <DndContext
@@ -400,6 +405,7 @@ export function PlacesBoard({
         </div>
       )}
 
+      <ImportSheet open={importing} onOpenChange={setImporting} tripId={tripId} onDone={refresh} />
       <PlaceSearchSheet
         open={searchOpen}
         onOpenChange={setSearchOpen}
