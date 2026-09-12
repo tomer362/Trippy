@@ -23,7 +23,7 @@ export default async function TripLayout({
     getTripMembers(tripId),
   ]);
   return (
-    <div className="flex min-h-dvh flex-col">
+    <div className="app-shell flex h-dvh flex-col overflow-hidden">
       <TripHeader
         trip={{
           id: access.trip.id,
@@ -41,7 +41,7 @@ export default async function TripLayout({
         canEdit={access.canEdit}
         canManage={access.canManage}
       />
-      <div className="flex flex-1 flex-col">{children}</div>
+      <div className="flex min-h-0 flex-1 flex-col">{children}</div>
     </div>
   );
 }

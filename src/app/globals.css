@@ -114,6 +114,13 @@
   .no-print {
     display: none;
   }
+  .app-shell {
+    height: auto;
+    overflow: visible;
+  }
+  .app-shell main {
+    overflow: visible;
+  }
   body {
     background: white;
     color: black;

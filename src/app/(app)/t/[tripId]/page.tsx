@@ -22,7 +22,7 @@ export default async function TripOverviewPage({
   ]);
   const trip = access.trip;
   return (
-    <main className="mx-auto w-full max-w-5xl flex-1 space-y-8 px-4 py-6">
+    <main className="mx-auto w-full max-w-5xl flex-1 space-y-8 overflow-y-auto px-4 py-6">
       <section className="grid gap-4 sm:grid-cols-3">
         <Stat
           icon={<CalendarDays />}
