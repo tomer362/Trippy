@@ -97,6 +97,38 @@
   }
 }
 
+/* Tiptap output: readable defaults without pulling in a typography plugin. */
+@layer components {
+  .prose-notes :where(h2) {
+    @apply mt-3 text-lg font-bold;
+  }
+  .prose-notes :where(h3) {
+    @apply mt-2 font-bold;
+  }
+  .prose-notes :where(p) {
+    @apply my-1.5;
+  }
+  .prose-notes :where(ul) {
+    @apply my-1.5 list-disc pl-5;
+  }
+  .prose-notes :where(ol) {
+    @apply my-1.5 list-decimal pl-5;
+  }
+  .prose-notes :where(a) {
+    @apply text-primary underline;
+  }
+  .prose-notes :where(blockquote) {
+    @apply my-2 border-l-2 border-border pl-3 text-muted-foreground;
+  }
+  .prose-notes :where(code) {
+    @apply rounded bg-muted px-1 py-0.5 text-[0.9em];
+  }
+  .prose-notes :where(p.is-editor-empty:first-child)::before {
+    content: attr(data-placeholder);
+    @apply pointer-events-none float-left h-0 text-muted-foreground;
+  }
+}
+
 @utility sunset-bg {
   background: linear-gradient(
     160deg,

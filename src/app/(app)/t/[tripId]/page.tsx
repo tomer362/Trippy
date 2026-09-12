@@ -1,13 +1,15 @@
-import { CalendarDays, History, MapPin, MessageSquare, Users } from "lucide-react";
+import { CalendarDays, History, MapPin, MessageSquare, NotebookPen, Users } from "lucide-react";
 import Link from "next/link";
 import { CommentThread } from "@/components/comments/comment-thread";
 import { DestinationHero } from "@/components/destinations/destination-card";
+import { TripNotesCard } from "@/components/notes/trip-notes-card";
 import { ActivityFeed } from "@/components/trips/activity-feed";
 import { Button } from "@/components/ui/button";
 import { getSession } from "@/lib/auth";
 import { formatDateRange, formatDayLabel } from "@/lib/days";
 import { getTripAccess } from "@/server/authz";
 import { getActivity } from "@/server/queries/activity";
+import { getTripNotes } from "@/server/queries/content";
 import { getTripDays, getTripDestinations, getTripMembers } from "@/server/queries/trips";
 
 export default async function TripOverviewPage({
@@ -24,6 +26,7 @@ export default async function TripOverviewPage({
     getTripDays(tripId),
     getActivity(tripId, 25),
   ]);
+  const notes = await getTripNotes(tripId);
   const trip = access.trip;
   return (
     <main className="mx-auto w-full max-w-5xl flex-1 space-y-8 overflow-y-auto px-4 py-6">
@@ -88,6 +91,13 @@ export default async function TripOverviewPage({
           ))}
         </ol>
       </section>
+      <section>
+        <h2 className="mb-3 flex items-center gap-2 text-xl font-bold">
+          <NotebookPen className="size-5" /> Notes
+        </h2>
+        <TripNotesCard tripId={tripId} initialContent={notes.body} canEdit={access.canEdit} />
+      </section>
+
       <section>
         <h2 className="mb-3 flex items-center gap-2 text-xl font-bold">
           <MessageSquare className="size-5" /> Discussion
