@@ -13,7 +13,7 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 import { arrayMove, sortableKeyboardCoordinates } from "@dnd-kit/sortable";
-import { Printer, Rows2, Rows3 } from "lucide-react";
+import { Printer, Rows2, Rows3, Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
@@ -24,6 +24,7 @@ import { PlaceSearchSheet } from "@/components/places/place-search-sheet";
 import { Button } from "@/components/ui/button";
 import { colorHex, dayColor } from "@/lib/colors";
 import { formatDayLabel } from "@/lib/days";
+import type { PacingHint } from "@/lib/travel-profile";
 import type { DestinationDTO, TravelMode } from "@/lib/types";
 import {
   addItineraryItem,
@@ -49,6 +50,7 @@ export function ItineraryBoard({
   days: initialDays,
   unscheduled,
   destinations,
+  pacing,
   lodgingByDay,
   reservationsByDay,
   mapsApiKey,
@@ -60,6 +62,7 @@ export function ItineraryBoard({
   canEdit: boolean;
   days: ItineraryDayDTO[];
   unscheduled: ItineraryPlace[];
+  pacing: PacingHint | null;
   lodgingByDay: Record<string, LodgingDTO[]>;
   reservationsByDay: Record<string, ReservationDTO[]>;
   destinations: DestinationDTO[];
@@ -259,6 +262,19 @@ export function ItineraryBoard({
           <Printer /> Print
         </Button>
       </div>
+
+      {pacing && (pacing.busyDays.length > 0 || pacing.quietDays.length > 0) && (
+        <p className="flex items-start gap-2 rounded-2xl bg-muted p-3 text-sm">
+          <Sparkles className="mt-0.5 size-4 shrink-0 text-primary" />
+          <span>
+            On your past trips you plan about {pacing.avgStopsPerDay} stops a day.
+            {pacing.busyDays.length > 0 &&
+              ` Day${pacing.busyDays.length > 1 ? "s" : ""} ${pacing.busyDays.map((d) => d + 1).join(", ")} look${pacing.busyDays.length > 1 ? "" : "s"} packed.`}
+            {pacing.quietDays.length > 0 &&
+              ` Day${pacing.quietDays.length > 1 ? "s" : ""} ${pacing.quietDays.map((d) => d + 1).join(", ")} ${pacing.quietDays.length > 1 ? "have" : "has"} room for more.`}
+          </span>
+        </p>
+      )}
 
       <DndContext
         sensors={sensors}

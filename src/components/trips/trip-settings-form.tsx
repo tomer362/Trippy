@@ -3,6 +3,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { DestinationPicker } from "@/components/destinations/destination-picker";
+import { PublishControls } from "@/components/guides/publish-controls";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Textarea } from "@/components/ui/input";
 import type { DestinationDTO, TravelMode, TripKind, TripVisibility } from "@/lib/types";
@@ -69,6 +70,8 @@ export function TripSettingsForm({
     endDate: string | null;
     dayCount: number;
     archived: boolean;
+    slug: string;
+    completed: boolean;
   };
   destinations: DestinationDTO[];
   members: TripMemberInfo[];
@@ -214,6 +217,15 @@ export function TripSettingsForm({
         canEdit
         currentUserId={currentUserId}
         emailEnabled={emailEnabled}
+      />
+
+      <PublishControls
+        tripId={trip.id}
+        slug={trip.slug}
+        kind={trip.kind}
+        isPublic={visibility === "public"}
+        isCompleted={trip.completed}
+        canManage={canManage}
       />
 
       {canManage && (

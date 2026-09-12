@@ -39,6 +39,8 @@ export default async function TripSettingsPage({
           endDate: t.endDate,
           dayCount: t.dayCount,
           archived: Boolean(t.archivedAt),
+          slug: t.slug,
+          completed: Boolean(t.completedAt),
         }}
         destinations={destinations}
         members={members}

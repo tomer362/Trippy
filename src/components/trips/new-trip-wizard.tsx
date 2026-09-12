@@ -58,10 +58,22 @@ function suggestName(destinations: DestinationDTO[]) {
   return `Trip to ${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
 }
 
-export function NewTripWizard({ initialKind }: { initialKind?: TripKind }) {
+export function NewTripWizard({
+  initialKind,
+  initialDestination,
+}: {
+  initialKind?: TripKind;
+  initialDestination?: DestinationDTO | null;
+}) {
   const router = useRouter();
-  const [draft, setDraft] = useState<Draft>(() => ({ ...EMPTY, kind: initialKind ?? null }));
-  const [step, setStep] = useState<Step>(initialKind ? "destinations" : "kind");
+  const [draft, setDraft] = useState<Draft>(() => ({
+    ...EMPTY,
+    kind: initialKind ?? null,
+    destinations: initialDestination ? [initialDestination] : [],
+  }));
+  const [step, setStep] = useState<Step>(
+    initialKind || initialDestination ? "destinations" : "kind",
+  );
   const [pending, startTransition] = useTransition();
 
   useEffect(() => {

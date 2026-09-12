@@ -1,4 +1,5 @@
 import { integer, jsonb, pgTable, primaryKey, text, timestamp } from "drizzle-orm/pg-core";
+import type { TravelProfile } from "@/lib/travel-profile";
 import { id, timestamps } from "./_shared";
 import { user } from "./auth";
 import { trips } from "./trips";
@@ -36,19 +37,7 @@ export const tripCopies = pgTable("trip_copies", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export type TravelProfile = {
-  tripsAnalyzed: number;
-  avgStopsPerDay: number;
-  avgDays: number;
-  typicalStartTime: string | null;
-  modeShare: Record<string, number>;
-  categoryShare: Record<string, number>;
-  cuisineShare: Record<string, number>;
-  avgPriceLevel: number | null;
-  countries: string[];
-  destinationIds: string[];
-  favoritePlaceIds: string[];
-};
+export type { TravelProfile } from "@/lib/travel-profile";
 
 export const userTravelProfiles = pgTable("user_travel_profiles", {
   userId: text("user_id")
