@@ -1,0 +1,15 @@
+# Vercel Hobby crons run at most once a day, so finer schedules are driven from here.
+name: Scheduled jobs
+on:
+  schedule:
+    - cron: "15 6 * * *"   # daily: refresh FX rates + trip reminders
+  workflow_dispatch:
+jobs:
+  daily:
+    runs-on: ubuntu-latest
+    if: ${{ vars.APP_URL != '' }}
+    steps:
+      - name: Refresh FX rates
+        run: curl -fsS -X POST "${{ vars.APP_URL }}/api/cron/fx" -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
+      - name: Send trip reminders
+        run: curl -fsS -X POST "${{ vars.APP_URL }}/api/cron/reminders" -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
