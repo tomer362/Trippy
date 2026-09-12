@@ -35,8 +35,10 @@ import {
   updateItineraryItem,
 } from "@/server/actions/itinerary";
 import type { BBox } from "@/server/db/schema/geo";
+import type { LodgingDTO, ReservationDTO } from "@/server/queries/bookings";
 import type { ItineraryDayDTO, ItineraryPlace } from "@/server/queries/itinerary";
 import { AddToDaySheet } from "./add-to-day-sheet";
+import { DayExtras } from "./day-extras";
 import { DaySection } from "./day-section";
 import { OptimizeDialog } from "./optimize-dialog";
 
@@ -47,6 +49,8 @@ export function ItineraryBoard({
   days: initialDays,
   unscheduled,
   destinations,
+  lodgingByDay,
+  reservationsByDay,
   mapsApiKey,
   mapId,
   tripBBox,
@@ -56,6 +60,8 @@ export function ItineraryBoard({
   canEdit: boolean;
   days: ItineraryDayDTO[];
   unscheduled: ItineraryPlace[];
+  lodgingByDay: Record<string, LodgingDTO[]>;
+  reservationsByDay: Record<string, ReservationDTO[]>;
   destinations: DestinationDTO[];
   mapsApiKey: string | null;
   mapId: string | null;
@@ -269,6 +275,14 @@ export function ItineraryBoard({
             canEdit={canEdit}
             compact={compact}
             legsLoading={legsLoading.has(day.id)}
+            lodgingHeader={
+              <DayExtras
+                tripId={tripId}
+                date={day.date}
+                lodgings={lodgingByDay[day.id] ?? []}
+                reservations={reservationsByDay[day.id] ?? []}
+              />
+            }
             onAdd={setAddForDay}
             onAddQuick={(d, kind) =>
               start(async () => {
