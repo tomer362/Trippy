@@ -42,6 +42,7 @@ import { AddToDaySheet } from "./add-to-day-sheet";
 import { DayExtras } from "./day-extras";
 import { DaySection } from "./day-section";
 import { OptimizeDialog } from "./optimize-dialog";
+import { SuggestDayDialog } from "./suggest-day-dialog";
 
 export function ItineraryBoard({
   tripId,
@@ -56,6 +57,7 @@ export function ItineraryBoard({
   mapsApiKey,
   mapId,
   tripBBox,
+  aiEnabled,
 }: {
   tripId: string;
   tripMode: TravelMode;
@@ -69,6 +71,7 @@ export function ItineraryBoard({
   mapsApiKey: string | null;
   mapId: string | null;
   tripBBox: BBox | null;
+  aiEnabled: boolean;
 }) {
   const router = useRouter();
   const [, start] = useTransition();
@@ -79,6 +82,7 @@ export function ItineraryBoard({
   const [addForDay, setAddForDay] = useState<ItineraryDayDTO | null>(null);
   const [searchForDay, setSearchForDay] = useState<ItineraryDayDTO | null>(null);
   const [optimizeDay, setOptimizeDay] = useState<ItineraryDayDTO | null>(null);
+  const [suggestForDay, setSuggestForDay] = useState<ItineraryDayDTO | null>(null);
   const [focusDay, setFocusDay] = useState<string | null>(null);
   const [legsLoading, setLegsLoading] = useState<Set<string>>(new Set());
   const requestedLegs = useRef<Set<string>>(new Set());
@@ -308,6 +312,7 @@ export function ItineraryBoard({
               })
             }
             onOptimize={setOptimizeDay}
+            onSuggest={aiEnabled && canEdit ? setSuggestForDay : undefined}
             onSetMode={(d, mode) =>
               start(async () => {
                 const res = await updateDay({ tripId, dayId: d.id, travelMode: mode });
@@ -420,6 +425,15 @@ export function ItineraryBoard({
         onOpenChange={(o) => !o && setOptimizeDay(null)}
         onApplied={refresh}
       />
+      {aiEnabled && (
+        <SuggestDayDialog
+          day={suggestForDay}
+          tripId={tripId}
+          open={suggestForDay !== null}
+          onOpenChange={(o) => !o && setSuggestForDay(null)}
+          onApplied={refresh}
+        />
+      )}
     </>
   );
 }

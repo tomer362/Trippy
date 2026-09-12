@@ -11,6 +11,7 @@ import {
   Plus,
   Sparkles,
   StickyNote,
+  Wand2,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -40,6 +41,7 @@ export function DaySection({
   onAdd,
   onAddQuick,
   onOptimize,
+  onSuggest,
   onSetMode,
   onRenameDay,
   onToggleCollapsed,
@@ -59,6 +61,8 @@ export function DaySection({
   onAdd: (day: ItineraryDayDTO) => void;
   onAddQuick: (day: ItineraryDayDTO, kind: "note" | "checklist" | "break") => void;
   onOptimize: (day: ItineraryDayDTO) => void;
+  /** Absent when the planning assistant is not enabled on this deployment. */
+  onSuggest?: (day: ItineraryDayDTO) => void;
   onSetMode: (day: ItineraryDayDTO, mode: TravelMode) => void;
   onRenameDay: (day: ItineraryDayDTO, title: string) => void;
   onToggleCollapsed: (day: ItineraryDayDTO, collapsed: boolean) => void;
@@ -166,6 +170,11 @@ export function DaySection({
                   <Coffee /> Add a break
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
+                {onSuggest && (
+                  <DropdownMenuItem onSelect={() => onSuggest(day)}>
+                    <Wand2 /> Suggest stops
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem disabled={stops.length < 3} onSelect={() => onOptimize(day)}>
                   <Sparkles /> Optimise this day
                 </DropdownMenuItem>

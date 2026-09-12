@@ -30,6 +30,7 @@ const schema = z.object({
   AI_PROVIDER: z.enum(["anthropic", "google", ""]).optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
   GOOGLE_GENERATIVE_AI_API_KEY: z.string().optional(),
+  AI_MODEL: z.string().optional(),
   AUTH_TEST_BYPASS: z.string().optional(),
 });
 

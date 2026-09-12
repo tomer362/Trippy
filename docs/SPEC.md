@@ -224,7 +224,23 @@ empty days.
 - Web push (when configured): invite accepted, comment mentions, "trip starts tomorrow", trip
   day reminders. iOS requires the PWA to be installed; the app shows a one-time coach-mark.
 
-## 18. Non-functional requirements
+## 18. Planning assistant (optional)
+
+- Off unless a provider key is configured (`AI_PROVIDER` plus the matching key), and hidden
+  entirely from the UI when off — every other feature works without it.
+- **Suggest stops** on any itinerary day: the day's existing stops, the trip's destinations,
+  the travel mode, everything already saved to the trip and the traveller's own pacing and
+  favourite categories go into the request; the reply is a short summary and up to eight
+  stops, each with a suggested arrival, a duration, a category and one line on why it fits.
+- Suggestions are text until accepted. Each stop the traveller ticks is resolved through
+  Places within the trip's area before it is saved, so a place that cannot be found on the
+  map is reported rather than added — nothing invented reaches the itinerary.
+- Anything already on the day or saved elsewhere in the trip is filtered out of the reply, so
+  a second run adds to the day instead of repeating it.
+- Costs are bounded: one request per press, a small model by default (overridable with
+  `AI_MODEL`), and at most eight Places lookups per accepted round.
+
+## 19. Non-functional requirements
 
 - Accessibility: keyboard operable drag-and-drop, labelled controls, focus rings, colour
   contrast AA, reduced motion respected.

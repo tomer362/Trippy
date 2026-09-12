@@ -60,7 +60,15 @@ most once a day (this repo uses a GitHub Actions schedule instead; set repositor
 | Live collaboration | Pusher Channels (free sandbox) | `PUSHER_*`, `NEXT_PUBLIC_PUSHER_*` | Polling every 15 s + refetch on focus |
 | Email invites & notifications | Resend (3,000/mo) | `RESEND_API_KEY`, `EMAIL_FROM` | Share invite links via the system share sheet |
 | Web push | VAPID keys (`npx web-push generate-vapid-keys`) | `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | No push notifications |
-| AI assist | Anthropic or Google AI key | `AI_PROVIDER`, `ANTHROPIC_API_KEY` or `GOOGLE_GENERATIVE_AI_API_KEY` | AI features hidden |
+| Planning assistant | Anthropic or Google AI key | `AI_PROVIDER`, `ANTHROPIC_API_KEY` or `GOOGLE_GENERATIVE_AI_API_KEY`, optional `AI_MODEL` | "Suggest stops" is hidden; everything else works |
+
+### Planning assistant
+
+Set `AI_PROVIDER=anthropic` with an `ANTHROPIC_API_KEY`, or `AI_PROVIDER=google` with a
+`GOOGLE_GENERATIVE_AI_API_KEY`. A small, cheap model is used by default (`claude-haiku-4-5` or
+`gemini-2.5-flash`); set `AI_MODEL` to override it. With a key present, each itinerary day's
+menu gains **Suggest stops**. Accepted suggestions are looked up through Places, so
+`GOOGLE_MAPS_SERVER_KEY` must also be set for them to be added to a day.
 
 ## 5. Local development
 

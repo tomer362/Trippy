@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { ItineraryBoard } from "@/components/itinerary/itinerary-board";
-import { env } from "@/env";
+import { env, features } from "@/env";
 import { getSession } from "@/lib/auth";
 import { pacingHint } from "@/lib/travel-profile";
 import { getTripAccess } from "@/server/authz";
@@ -60,6 +60,7 @@ export default async function ItineraryPage({ params }: { params: Promise<{ trip
       mapsApiKey={env.NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY ?? null}
       mapId={env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID ?? null}
       tripBBox={view && "bbox" in view ? view.bbox : null}
+      aiEnabled={features.ai && access.canEdit}
     />
   );
 }

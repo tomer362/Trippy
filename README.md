@@ -33,8 +33,15 @@ pnpm dev
 Every trip can leave the app: print or PDF from the browser, `.ics` for your calendar, and
 CSV for places and expenses. All four are in the trip's overflow menu.
 
+## Optional planning assistant
+
+Set `AI_PROVIDER` (`anthropic` or `google`) plus the matching API key and each itinerary day
+gains **Suggest stops**: a draft day built around what you already have, which you review before
+anything is added. Without a key the feature is hidden and the rest of the app is unchanged.
+See [docs/SETUP.md](docs/SETUP.md#planning-assistant).
+
 ## Stack
 
 Next.js 16 (App Router, Server Actions) · TypeScript · Tailwind v4 · better-auth (Google) ·
 Neon Postgres + Drizzle · Google Maps / Places (New) / Routes APIs · Serwist PWA · TanStack Query ·
-dnd-kit · Pusher (optional realtime) · Vercel Blob (uploads).
+dnd-kit · Pusher (optional realtime) · Vercel Blob (uploads) · AI SDK (optional assistant).

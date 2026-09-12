@@ -16,6 +16,7 @@ import {
 } from "@/server/db/schema";
 import { createManualPlace, ensurePlace } from "@/server/services/places";
 import { publishTripChange } from "@/server/services/realtime";
+import { attachPlaceToDay, saveTripPlace } from "@/server/services/trip-places";
 import { action } from "./_helpers";
 
 const colorSchema = z.enum(COLOR_KEYS as [string, ...string[]]);
@@ -61,65 +62,17 @@ export const addPlaceToTrip = action(addPlaceSchema, async (input, userId) => {
   const place = input.googlePlaceId
     ? await ensurePlace(input.googlePlaceId)
     : await createManualPlace(input.manual!);
-
-  let listId = input.listId ?? null;
-  if (!listId && !input.dayId) {
-    const [first] = await db
-      .select()
-      .from(tripLists)
-      .where(eq(tripLists.tripId, input.tripId))
-      .orderBy(tripLists.position)
-      .limit(1);
-    listId =
-      first?.id ??
-      (
-        await db
-          .insert(tripLists)
-          .values({ tripId: input.tripId, name: "Places to visit", kind: "places", position: 0 })
-          .returning()
-      )[0]!.id;
-  }
-
-  const [tripPlace] = await db
-    .insert(tripPlaces)
-    .values({
-      tripId: input.tripId,
-      listId,
-      placeId: place.id,
-      notes: input.notes ?? null,
-      position: await nextPosition(input.tripId, listId),
-      addedBy: userId,
-    })
-    .returning();
-
-  if (input.dayId) await attachToDay(input.tripId, input.dayId, tripPlace!.id);
-
-  await db.insert(activities).values({
+  const saved = await saveTripPlace({
     tripId: input.tripId,
-    actorId: userId,
-    type: "place.added",
-    entityType: "trip_place",
-    entityId: tripPlace!.id,
-    summary: `added ${place.name}`,
+    userId,
+    place,
+    listId: input.listId ?? null,
+    dayId: input.dayId ?? null,
+    notes: input.notes ?? null,
   });
   await touchTrip(input.tripId);
-  await publishTripChange(input.tripId, { entity: "places", id: tripPlace!.id, actorId: userId });
-  return { tripPlaceId: tripPlace!.id, placeId: place.id, name: place.name };
+  return saved;
 });
-
-async function attachToDay(tripId: string, dayId: string, tripPlaceId: string) {
-  const [row] = await db
-    .select({ max: max(itineraryItems.position) })
-    .from(itineraryItems)
-    .where(eq(itineraryItems.dayId, dayId));
-  await db.insert(itineraryItems).values({
-    tripId,
-    dayId,
-    kind: "place",
-    tripPlaceId,
-    position: (row?.max ?? -1) + 1,
-  });
-}
 
 const updatePlaceSchema = z.object({
   tripId: z.string(),
@@ -183,7 +136,8 @@ export const moveTripPlaces = action(
             addedBy: userId,
           })
           .returning();
-        if (targetDayId) await attachToDay(tripId, targetDayId, copy!.id);
+        if (targetDayId)
+          await attachPlaceToDay({ tripId, dayId: targetDayId, tripPlaceId: copy!.id });
       }
     } else {
       if (targetListId !== undefined) {
@@ -199,7 +153,8 @@ export const moveTripPlaces = action(
         await db
           .delete(itineraryItems)
           .where(and(inArray(itineraryItems.tripPlaceId, ids), eq(itineraryItems.tripId, tripId)));
-        for (const row of rows) await attachToDay(tripId, targetDayId, row.id);
+        for (const row of rows)
+          await attachPlaceToDay({ tripId, dayId: targetDayId, tripPlaceId: row.id });
       }
     }
     await touchTrip(tripId);
@@ -450,7 +405,7 @@ export const schedulePlaceOnDay = action(
       .where(and(eq(itineraryDays.id, dayId), eq(itineraryDays.tripId, tripId)))
       .limit(1);
     if (!day) throw new Error("Day not found");
-    await attachToDay(tripId, dayId, tripPlaceId);
+    await attachPlaceToDay({ tripId, dayId, tripPlaceId });
     await touchTrip(tripId);
     await publishTripChange(tripId, { entity: "itinerary", actorId: userId });
     return null;
