@@ -121,6 +121,14 @@
   .app-shell main {
     overflow: visible;
   }
+  .app-shell [data-pane="list"] {
+    max-width: none;
+    overflow: visible;
+  }
+  /* Keep a day's stops and travel times together on one printed page. */
+  [id^="day-"] {
+    break-inside: avoid;
+  }
   body {
     background: white;
     color: black;
