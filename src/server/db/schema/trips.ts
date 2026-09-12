@@ -105,6 +105,7 @@ export const tripInvites = pgTable(
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     maxUses: integer("max_uses"),
     uses: integer("uses").notNull().default(0),
+    acceptedBy: text("accepted_by").references(() => user.id, { onDelete: "set null" }),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },

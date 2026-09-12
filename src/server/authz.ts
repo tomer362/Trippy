@@ -1,6 +1,6 @@
 import "server-only";
 import { and, eq, or } from "drizzle-orm";
-import type { TripRole } from "@/lib/types";
+import type { TripRole, TripVisibility } from "@/lib/types";
 import { db } from "@/server/db";
 import { friendship, tripMembers, trips } from "@/server/db/schema";
 
@@ -12,6 +12,29 @@ export type TripAccess = {
   canManage: boolean;
   isMember: boolean;
 };
+
+export type AccessDecision = { canView: boolean; canEdit: boolean; canManage: boolean };
+
+/**
+ * The whole permission matrix in one place: membership decides editing, visibility decides
+ * who else may read. Pure so it can be tested without a database.
+ */
+export function decideAccess(input: {
+  role: TripRole | null;
+  visibility: TripVisibility;
+  isFriendOfMember: boolean;
+}): AccessDecision {
+  const { role, visibility, isFriendOfMember } = input;
+  return {
+    canView:
+      role !== null ||
+      visibility === "public" ||
+      visibility === "link" ||
+      (visibility === "friends" && isFriendOfMember),
+    canEdit: role === "owner" || role === "editor",
+    canManage: role === "owner",
+  };
+}
 
 export class AccessDeniedError extends Error {
   constructor(message = "You don't have access to this trip") {

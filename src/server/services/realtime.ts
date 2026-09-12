@@ -32,8 +32,16 @@ function pusher(): Pusher | null {
   return client;
 }
 
+/**
+ * One presence channel per trip carries both "someone changed something" hints and the
+ * list of people currently viewing, so a client needs a single subscription.
+ */
 export function tripChannel(tripId: string) {
-  return `private-trip-${tripId}`;
+  return `presence-trip-${tripId}`;
+}
+
+export function tripIdFromChannel(channel: string): string | null {
+  return channel.match(/^presence-trip-(.+)$/)?.[1] ?? null;
 }
 
 /**

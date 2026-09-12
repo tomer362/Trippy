@@ -24,6 +24,7 @@ import { formatDateRange } from "@/lib/days";
 import type { DestinationDTO, TripKind, TripRole, TripVisibility } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import type { TripMemberInfo } from "@/server/queries/trips";
+import { LiveViewers } from "./live-viewers";
 
 export type TripHeaderTrip = {
   id: string;
@@ -55,6 +56,7 @@ export function TripHeader({
   role,
   canEdit,
   canManage,
+  currentUserId,
 }: {
   trip: TripHeaderTrip;
   destinations: DestinationDTO[];
@@ -62,6 +64,7 @@ export function TripHeader({
   role: TripRole | null;
   canEdit: boolean;
   canManage: boolean;
+  currentUserId: string | null;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -154,6 +157,7 @@ export function TripHeader({
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            <LiveViewers tripId={trip.id} currentUserId={currentUserId} />
             <span className="hidden items-center gap-1 rounded-full bg-black/30 px-2 py-1 text-xs sm:inline-flex">
               <VisIcon className="size-3.5" /> {trip.visibility}
               {role && role !== "owner" && ` · ${role}`}

@@ -1,10 +1,13 @@
-import { CalendarDays, MapPin, Users } from "lucide-react";
+import { CalendarDays, History, MapPin, MessageSquare, Users } from "lucide-react";
 import Link from "next/link";
+import { CommentThread } from "@/components/comments/comment-thread";
 import { DestinationHero } from "@/components/destinations/destination-card";
+import { ActivityFeed } from "@/components/trips/activity-feed";
 import { Button } from "@/components/ui/button";
 import { getSession } from "@/lib/auth";
 import { formatDateRange, formatDayLabel } from "@/lib/days";
 import { getTripAccess } from "@/server/authz";
+import { getActivity } from "@/server/queries/activity";
 import { getTripDays, getTripDestinations, getTripMembers } from "@/server/queries/trips";
 
 export default async function TripOverviewPage({
@@ -15,10 +18,11 @@ export default async function TripOverviewPage({
   const { tripId } = await params;
   const session = await getSession();
   const access = (await getTripAccess(tripId, session?.user.id ?? null))!;
-  const [destinations, members, days] = await Promise.all([
+  const [destinations, members, days, activity] = await Promise.all([
     getTripDestinations(tripId),
     getTripMembers(tripId),
     getTripDays(tripId),
+    getActivity(tripId, 25),
   ]);
   const trip = access.trip;
   return (
@@ -83,6 +87,21 @@ export default async function TripOverviewPage({
             </li>
           ))}
         </ol>
+      </section>
+      <section>
+        <h2 className="mb-3 flex items-center gap-2 text-xl font-bold">
+          <MessageSquare className="size-5" /> Discussion
+        </h2>
+        <div className="rounded-3xl border border-border p-4">
+          <CommentThread tripId={tripId} entityType="trip" entityId={tripId} />
+        </div>
+      </section>
+
+      <section>
+        <h2 className="mb-3 flex items-center gap-2 text-xl font-bold">
+          <History className="size-5" /> Activity
+        </h2>
+        <ActivityFeed tripId={tripId} activity={activity} canEdit={access.canEdit} />
       </section>
     </main>
   );

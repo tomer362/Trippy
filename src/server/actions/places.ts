@@ -224,7 +224,8 @@ export const removeTripPlaces = action(
       actorId: userId,
       type: "place.removed",
       summary: rows.length === 1 ? "removed a place" : `removed ${rows.length} places`,
-      payload: { count: rows.length },
+      // Keep the removed rows so the activity feed can put them back.
+      payload: { tripPlaces: rows },
     });
     await touchTrip(tripId);
     await publishTripChange(tripId, { entity: "places", actorId: userId });

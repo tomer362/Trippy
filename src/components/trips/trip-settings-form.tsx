@@ -5,7 +5,6 @@ import { toast } from "sonner";
 import { DestinationPicker } from "@/components/destinations/destination-picker";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Textarea } from "@/components/ui/input";
-import { Avatar } from "@/components/ui/misc";
 import type { DestinationDTO, TravelMode, TripKind, TripVisibility } from "@/lib/types";
 import {
   archiveTrip,
@@ -14,8 +13,10 @@ import {
   updateTrip,
   updateTripDates,
 } from "@/server/actions/trips";
+import type { InviteDTO } from "@/server/queries/social";
 import type { TripMemberInfo } from "@/server/queries/trips";
 import { DateRangeField, type DateRangeValue } from "./date-range-field";
+import { MembersPanel } from "./members-panel";
 
 const CURRENCIES = [
   "USD",
@@ -51,8 +52,10 @@ export function TripSettingsForm({
   trip,
   destinations: initialDestinations,
   members,
+  invites,
   canManage,
   currentUserId,
+  emailEnabled,
 }: {
   trip: {
     id: string;
@@ -69,8 +72,10 @@ export function TripSettingsForm({
   };
   destinations: DestinationDTO[];
   members: TripMemberInfo[];
+  invites: InviteDTO[];
   canManage: boolean;
   currentUserId: string;
+  emailEnabled: boolean;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -200,31 +205,16 @@ export function TripSettingsForm({
         </Button>
       </section>
 
-      <section id="members" className="space-y-3">
-        <h3 className="font-bold">Trip mates</h3>
-        <ul className="divide-y divide-border rounded-2xl border border-border">
-          {members.map((m) => (
-            <li key={m.userId} className="flex items-center gap-3 px-4 py-3">
-              <Avatar src={m.image} name={m.name} />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate font-semibold">
-                  {m.name}{" "}
-                  {m.userId === currentUserId && (
-                    <span className="text-xs text-muted-foreground">(you)</span>
-                  )}
-                </span>
-                <span className="block truncate text-xs text-muted-foreground">{m.email}</span>
-              </span>
-              <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold capitalize">
-                {m.role}
-              </span>
-            </li>
-          ))}
-        </ul>
-        <p className="text-sm text-muted-foreground">
-          Invites, roles and friends arrive with the collaboration features.
-        </p>
-      </section>
+      <MembersPanel
+        tripId={trip.id}
+        tripName={trip.name}
+        members={members}
+        invites={invites}
+        canManage={canManage}
+        canEdit
+        currentUserId={currentUserId}
+        emailEnabled={emailEnabled}
+      />
 
       {canManage && (
         <section className="space-y-4">

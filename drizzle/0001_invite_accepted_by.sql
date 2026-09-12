@@ -1,0 +1,2 @@
+ALTER TABLE "trip_invites" ADD COLUMN "accepted_by" text;--> statement-breakpoint
+ALTER TABLE "trip_invites" ADD CONSTRAINT "trip_invites_accepted_by_user_id_fk" FOREIGN KEY ("accepted_by") REFERENCES "public"."user"("id") ON DELETE set null ON UPDATE no action;

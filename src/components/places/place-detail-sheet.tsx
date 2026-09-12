@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Clock, ExternalLink, Globe, Phone, Star, X } from "lucide-react";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
+import { CommentThread } from "@/components/comments/comment-thread";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogTitle, SheetContent } from "@/components/ui/dialog";
 import { Input, Label, Textarea } from "@/components/ui/input";
@@ -250,6 +251,11 @@ function PlaceDetailBody({
       ) : (
         place.notes && <p className="rounded-2xl bg-muted p-3 text-sm">{place.notes}</p>
       )}
+
+      <div className="mt-5 border-t border-border pt-4">
+        <p className="mb-2 font-semibold">Comments</p>
+        <CommentThread tripId={tripId} entityType="trip_place" entityId={place.id} compact />
+      </div>
 
       {d && d.reviews.length > 0 && (
         <div className="mt-5 space-y-3">

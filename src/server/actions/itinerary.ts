@@ -302,9 +302,11 @@ export const applyDayOrder = action(
       tripId,
       actorId: userId,
       type: "itinerary.optimized",
-      entityType: "day",
+      entityType: "itinerary_day",
       entityId: dayId,
       summary: `optimised day ${day.dayIndex + 1}`,
+      // The order before the change, so it can be undone from the activity feed.
+      payload: { order: day.items.map((i) => i.id) },
     });
     await touch(tripId);
     await publishTripChange(tripId, { entity: "itinerary", id: dayId, actorId: userId });
