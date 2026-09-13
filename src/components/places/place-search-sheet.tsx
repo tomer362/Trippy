@@ -1,7 +1,7 @@
 "use client";
 import { useQuery } from "@tanstack/react-query";
 import { Loader2, Plus, Search, Star, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Dialog, DialogTitle, SheetContent } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/misc";
@@ -54,7 +54,9 @@ export function PlaceSearchSheet({
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string | null>(null);
   const debounced = useDebounced(query, 280);
-  const session = useMemo(() => crypto.randomUUID(), []);
+  // A session ends when the Details call for the picked place carries this token, so a new
+  // one is minted after every pick — reusing it would bill the next search as the same session.
+  const [session, setSession] = useState(() => crypto.randomUUID());
   const inputRef = useRef<HTMLInputElement>(null);
   const [pending, start] = useTransition();
   const [added, setAdded] = useState<Set<string>>(new Set());
@@ -66,6 +68,7 @@ export function PlaceSearchSheet({
       setQuery("");
       setCategory(null);
       setAdded(new Set());
+      setSession(crypto.randomUUID());
     }
   }, [open]);
 
@@ -102,11 +105,13 @@ export function PlaceSearchSheet({
         googlePlaceId,
         listId: listId ?? undefined,
         dayId,
+        sessionToken: session,
       });
       if (!res.ok) {
         toast.error(res.error);
         return;
       }
+      setSession(crypto.randomUUID());
       setAdded((prev) => new Set(prev).add(googlePlaceId));
       toast.success(`Added ${name}`);
       onAdded?.();

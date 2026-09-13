@@ -91,7 +91,14 @@ function PlaceDetailBody({
       return (await res.json()) as Details;
     },
     enabled: Boolean(place.googlePlaceId),
-    staleTime: 120_000,
+    // Ratings and hours are the Enterprise SKU, so reopening the same place inside a session
+    // reuses what we already fetched rather than paying again. Never persisted: Google's terms
+    // allow showing this live, not storing it.
+    staleTime: 5 * 60_000,
+    gcTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    retry: false,
   });
 
   const d = details.data;

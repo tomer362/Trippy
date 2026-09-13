@@ -230,6 +230,7 @@ export const refreshDayLegs = action(
     const legs = await ensureSequenceLegs(
       stops.map((s) => s.place!.placeId),
       mode,
+      userId,
     );
     return { legs: legs.filter(Boolean).length };
   },
@@ -270,6 +271,7 @@ export const optimizeDay = action(
     const { matrix, estimated } = await buildDayMatrix(
       stops.map((s) => ({ lat: s.place!.lat, lng: s.place!.lng })),
       mode,
+      userId,
     );
     const indexOf = (itemId: string | null | undefined) =>
       itemId ? stops.findIndex((s) => s.id === itemId) : -1;

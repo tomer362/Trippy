@@ -1,7 +1,7 @@
 "use client";
 import { useQuery } from "@tanstack/react-query";
 import { Loader2, Search } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Input, Label } from "@/components/ui/input";
 import type { BBox } from "@/server/db/schema/geo";
 
@@ -16,7 +16,12 @@ export function HotelSearchField({
   label = "Where are you staying?",
 }: {
   value: string;
-  onPick: (suggestion: { googlePlaceId: string; name: string; address: string }) => void;
+  onPick: (suggestion: {
+    googlePlaceId: string;
+    name: string;
+    address: string;
+    sessionToken: string;
+  }) => void;
   onTypeName: (name: string) => void;
   bbox: BBox | null;
   label?: string;
@@ -24,7 +29,8 @@ export function HotelSearchField({
   const [query, setQuery] = useState(value);
   const [open, setOpen] = useState(false);
   const [debounced, setDebounced] = useState(value);
-  const session = useMemo(() => crypto.randomUUID(), []);
+  // Rotated after each pick: the Details call that saves the hotel closes this session.
+  const [session, setSession] = useState(() => crypto.randomUUID());
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(query), 280);
@@ -73,7 +79,13 @@ export function HotelSearchField({
               <button
                 type="button"
                 onClick={() => {
-                  onPick({ googlePlaceId: s.placeId, name: s.mainText, address: s.secondaryText });
+                  onPick({
+                    googlePlaceId: s.placeId,
+                    name: s.mainText,
+                    address: s.secondaryText,
+                    sessionToken: session,
+                  });
+                  setSession(crypto.randomUUID());
                   setQuery(s.mainText);
                   setOpen(false);
                 }}

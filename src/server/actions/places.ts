@@ -53,6 +53,9 @@ const addPlaceSchema = z
     listId: z.string().nullable().optional(),
     dayId: z.string().optional(),
     notes: z.string().max(2000).optional(),
+    // The autocomplete session this pick came from, so Google bills the whole search as one
+    // Details call instead of one per keystroke.
+    sessionToken: z.string().max(64).optional(),
   })
   .refine((v) => Boolean(v.googlePlaceId || v.manual), { message: "A place is required" });
 
@@ -61,7 +64,7 @@ export const addPlaceToTrip = action(addPlaceSchema, async (input, userId) => {
   await requireTripAccess(input.tripId, userId, "edit");
   await assertInTrip(input.tripId, { list: input.listId, day: input.dayId });
   const place = input.googlePlaceId
-    ? await ensurePlace(input.googlePlaceId)
+    ? await ensurePlace(input.googlePlaceId, input.sessionToken)
     : await createManualPlace(input.manual!);
   const saved = await saveTripPlace({
     tripId: input.tripId,

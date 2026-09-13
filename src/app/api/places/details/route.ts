@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { features } from "@/env";
 import { getSession } from "@/lib/auth";
 import { PRICE_LEVEL_LABEL, prettyType } from "@/lib/place-categories";
+import { guard } from "@/server/rate-limit";
 import { FIELD_MASKS, placeDetails } from "@/server/services/google/places";
 
 export const dynamic = "force-dynamic";
@@ -11,9 +12,12 @@ export const dynamic = "force-dynamic";
  * never stored, so this is the only place the expensive field masks are used.
  */
 export async function GET(req: Request) {
-  if (!(await getSession())) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   if (!features.mapsServer)
     return NextResponse.json({ error: "maps_not_configured" }, { status: 503 });
+  const limited = await guard(req, "places.details", session.user.id);
+  if (limited) return limited;
   const { searchParams } = new URL(req.url);
   const placeId = searchParams.get("placeId");
   if (!placeId) return NextResponse.json({ error: "bad_request" }, { status: 400 });

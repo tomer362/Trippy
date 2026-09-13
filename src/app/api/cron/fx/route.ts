@@ -1,5 +1,8 @@
+import { lt } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { env } from "@/env";
+import { db } from "@/server/db";
+import { rateLimits } from "@/server/db/schema";
 import { refreshRates } from "@/server/services/fx";
 
 export const dynamic = "force-dynamic";
@@ -12,5 +15,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   const result = await refreshRates();
-  return NextResponse.json(result);
+  // Rate-limit rows are keyed per subject, so the table is small — but a subject that never
+  // comes back would otherwise sit there forever.
+  const swept = await db
+    .delete(rateLimits)
+    .where(lt(rateLimits.windowStart, new Date(Date.now() - 2 * 24 * 3600 * 1000)))
+    .returning({ bucket: rateLimits.bucket });
+  return NextResponse.json({ ...result, rateLimitRowsSwept: swept.length });
 }

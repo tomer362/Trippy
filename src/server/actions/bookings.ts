@@ -34,6 +34,7 @@ async function touch(tripId: string) {
 const lodgingFields = z.object({
   tripId: z.string(),
   googlePlaceId: z.string().optional(),
+  sessionToken: z.string().max(64).optional(),
   name: z.string().trim().min(1, "Name the place you're staying").max(200),
   address: z.string().max(300).nullable().optional(),
   lat: z.number().nullable().optional(),
@@ -56,9 +57,9 @@ const lodgingSchema = lodgingFields.refine((v) => v.checkOut > v.checkIn, {
 
 export const addLodging = action(
   lodgingSchema,
-  async ({ tripId, googlePlaceId, ...input }, userId) => {
+  async ({ tripId, googlePlaceId, sessionToken, ...input }, userId) => {
     await requireTripAccess(tripId, userId, "edit");
-    const place = googlePlaceId ? await ensurePlace(googlePlaceId) : null;
+    const place = googlePlaceId ? await ensurePlace(googlePlaceId, sessionToken) : null;
     const [created] = await db
       .insert(lodgings)
       .values({

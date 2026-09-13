@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getSession } from "@/lib/auth";
 import { extractFromText, extractPlaceCandidates, fromGoogleMapsUrl } from "@/lib/extract-places";
+import { guard } from "@/server/rate-limit";
 import { safeFetch, UnsafeUrlError } from "@/server/services/safe-fetch";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +19,10 @@ const MAX_BYTES = 2_000_000;
  * Nothing is saved here: extraction is a suggestion, not an import.
  */
 export async function POST(req: Request) {
-  if (!(await getSession())) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const limited = await guard(req, "import.url", session.user.id);
+  if (limited) return limited;
   const body = schema.safeParse(await req.json().catch(() => null));
   if (!body.success || (!body.data.url && !body.data.text)) {
     return NextResponse.json({ error: "Paste a link or some text" }, { status: 400 });

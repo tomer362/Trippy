@@ -30,15 +30,24 @@ function valuesFromDetails(d: PlaceDetails) {
   };
 }
 
-/** Returns our cached row for a Google place, fetching or refreshing it when needed. */
-export async function ensurePlace(googlePlaceId: string): Promise<CachedPlace> {
+/**
+ * Returns our cached row for a Google place, fetching or refreshing it when needed.
+ *
+ * Pass the autocomplete session token that produced this place id. Google bills a session as
+ * one Details call rather than one call per keystroke, but only if the Details request that
+ * ends the session carries the token — without it every keystroke is billed separately.
+ */
+export async function ensurePlace(
+  googlePlaceId: string,
+  sessionToken?: string,
+): Promise<CachedPlace> {
   const [existing] = await db
     .select()
     .from(places)
     .where(eq(places.googlePlaceId, googlePlaceId))
     .limit(1);
   if (existing && Date.now() - existing.coordsCachedAt.getTime() < COORD_TTL_MS) return existing;
-  const details = await placeDetails(googlePlaceId, FIELD_MASKS.basic);
+  const details = await placeDetails(googlePlaceId, FIELD_MASKS.basic, sessionToken);
   const values = valuesFromDetails(details);
   if (existing) {
     const [updated] = await db
