@@ -13,9 +13,20 @@ function isForeignKeyViolation(err: unknown): boolean {
   return false;
 }
 
+/**
+ * Raised when a write carried the version the caller had loaded and the row has moved on
+ * since. The caller is expected to reload rather than overwrite.
+ */
+export class ConflictError extends Error {
+  constructor(message = "Someone else changed this while you were editing") {
+    super(message);
+    this.name = "ConflictError";
+  }
+}
+
 export type ActionResult<T = undefined> =
   | { ok: true; data: T }
-  | { ok: false; error: string; fieldErrors?: Record<string, string[]> };
+  | { ok: false; error: string; conflict?: true; fieldErrors?: Record<string, string[]> };
 
 /** Wraps a server action body with auth, validation and uniform error handling. */
 export function action<S extends z.ZodType, T>(
@@ -38,6 +49,7 @@ export function action<S extends z.ZodType, T>(
       return { ok: true, data };
     } catch (err) {
       if (err instanceof AccessDeniedError) return { ok: false, error: err.message };
+      if (err instanceof ConflictError) return { ok: false, error: err.message, conflict: true };
       // A composite (id, trip_id) foreign key rejected the write, which means an id in the
       // request belongs to a different trip. Report it as the mistake it is, not as a crash.
       if (isForeignKeyViolation(err))

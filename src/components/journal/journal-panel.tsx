@@ -240,9 +240,12 @@ export function JournalPanel({
 
               <RichNotes
                 initialContent={entry.body}
+                initialVersion={entry.version}
                 canEdit={canEdit}
                 placeholder="What happened today?"
-                onSave={(body) => updateJournalEntry({ tripId, id: entry.id, body })}
+                onSave={(body, expectedVersion) =>
+                  updateJournalEntry({ tripId, id: entry.id, body, expectedVersion })
+                }
               />
 
               {entry.photos.length > 0 && (

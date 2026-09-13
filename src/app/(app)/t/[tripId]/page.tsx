@@ -95,7 +95,12 @@ export default async function TripOverviewPage({
         <h2 className="mb-3 flex items-center gap-2 text-xl font-bold">
           <NotebookPen className="size-5" /> Notes
         </h2>
-        <TripNotesCard tripId={tripId} initialContent={notes.body} canEdit={access.canEdit} />
+        <TripNotesCard
+          tripId={tripId}
+          initialContent={notes.body}
+          initialVersion={notes.version}
+          canEdit={access.canEdit}
+        />
       </section>
 
       <section>

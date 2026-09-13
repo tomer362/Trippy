@@ -17,7 +17,7 @@ import {
 import { assertInTrip } from "@/server/scope";
 import { publishTripChange } from "@/server/services/realtime";
 import { deleteStored, isStoredBlobUrl, tripIdFromPath } from "@/server/services/storage";
-import { action } from "./_helpers";
+import { action, ConflictError } from "./_helpers";
 
 async function touch(tripId: string, path = "") {
   await db.update(trips).set({ updatedAt: new Date() }).where(eq(trips.id, tripId));
@@ -26,21 +26,32 @@ async function touch(tripId: string, path = "") {
 
 /* -------------------------------- notes --------------------------------- */
 
-/** Rich-text notes are stored as the editor's own JSON document. */
+/**
+ * Rich-text notes are stored as the editor's own JSON document. Long-form prose is the one
+ * place where a blind overwrite really destroys work, so the caller may pass the version it
+ * loaded and be told to refresh rather than silently replacing someone else's paragraphs.
+ */
 export const saveTripNotes = action(
-  z.object({ tripId: z.string(), body: z.unknown() }),
-  async ({ tripId, body }, userId) => {
+  z.object({ tripId: z.string(), body: z.unknown(), expectedVersion: z.number().int().optional() }),
+  async ({ tripId, body, expectedVersion }, userId) => {
     await requireTripAccess(tripId, userId, "edit");
-    await db
+    const set = { body, version: sql`${tripNotes.version} + 1`, updatedAt: new Date() };
+    // A version of 0 means "there were no notes when I loaded", so the insert path is right —
+    // but it must still refuse if someone has created them since, hence the setWhere.
+    const [row] = await db
       .insert(tripNotes)
       .values({ tripId, body })
       .onConflictDoUpdate({
         target: tripNotes.tripId,
-        set: { body, version: sql`${tripNotes.version} + 1`, updatedAt: new Date() },
-      });
+        set,
+        setWhere:
+          expectedVersion === undefined ? undefined : eq(tripNotes.version, expectedVersion),
+      })
+      .returning({ version: tripNotes.version });
+    if (!row) throw new ConflictError();
     await touch(tripId);
     await publishTripChange(tripId, { entity: "trip", actorId: userId });
-    return null;
+    return { version: row.version };
   },
 );
 
@@ -321,15 +332,25 @@ export const updateJournalEntry = action(
       .regex(/^\d{4}-\d{2}-\d{2}$/)
       .nullable()
       .optional(),
+    expectedVersion: z.number().int().optional(),
   }),
-  async ({ tripId, id, ...patch }, userId) => {
+  async ({ tripId, id, expectedVersion, ...patch }, userId) => {
     await requireTripAccess(tripId, userId, "edit");
-    await db
+    const updated = await db
       .update(journalEntries)
       .set({ ...patch, version: sql`${journalEntries.version} + 1` })
-      .where(and(eq(journalEntries.id, id), eq(journalEntries.tripId, tripId)));
+      .where(
+        and(
+          eq(journalEntries.id, id),
+          eq(journalEntries.tripId, tripId),
+          ...(expectedVersion === undefined ? [] : [eq(journalEntries.version, expectedVersion)]),
+        ),
+      )
+      .returning({ version: journalEntries.version });
+    if (updated.length === 0)
+      throw expectedVersion === undefined ? new Error("Entry not found") : new ConflictError();
     await touch(tripId, "/journal");
-    return null;
+    return { version: updated[0]!.version };
   },
 );
 

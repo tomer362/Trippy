@@ -6,17 +6,20 @@ import { saveTripNotes } from "@/server/actions/content";
 export function TripNotesCard({
   tripId,
   initialContent,
+  initialVersion,
   canEdit,
 }: {
   tripId: string;
   initialContent: unknown;
+  initialVersion: number;
   canEdit: boolean;
 }) {
   return (
     <RichNotes
       initialContent={initialContent}
+      initialVersion={initialVersion}
       canEdit={canEdit}
-      onSave={(body) => saveTripNotes({ tripId, body })}
+      onSave={(body, expectedVersion) => saveTripNotes({ tripId, body, expectedVersion })}
     />
   );
 }

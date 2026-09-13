@@ -155,8 +155,12 @@ empty days.
   (friends of any member can view), **Public** (listed on profiles, destination pages, Explore;
   indexable at `/p/[slug]`).
 - Live updates: Pusher channel per trip carries invalidation hints; clients refetch and merge.
-  Presence shows who is viewing; optimistic updates make local edits instant; edits use
-  version checks (last write wins with an automatic refresh on conflict).
+  Presence shows who is viewing; optimistic updates make local edits instant. Most edits are
+  last-write-wins, with every row carrying a `version` counter that records it changed and
+  realtime refreshes keeping the overwrite window a few seconds wide. Long-form rich text —
+  trip notes and journal entries — is the exception: those saves carry the version they loaded,
+  and a save against a version that has moved on is refused and reloaded rather than replacing
+  someone else's paragraphs.
 - Comments on places, days, lodgings and reservations; emoji reactions and 👍 voting on places.
 - Activity log ("Dana moved Louvre to Day 2") with undo for deletes and moves.
 

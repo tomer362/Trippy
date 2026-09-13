@@ -67,40 +67,44 @@ export const createTrip = action(createTripSchema, async (input, userId) => {
     input.startDate && input.endDate
       ? buildDays({ startDate: input.startDate, endDate: input.endDate, dayCount: 0 }).length
       : input.dayCount;
-  await db.insert(trips).values({
-    id,
-    ownerId: userId,
-    kind: input.kind,
-    name: input.name,
-    slug,
-    coverUrl: cover,
-    startDate: input.startDate,
-    endDate: input.endDate,
-    dayCount,
-    visibility: input.kind === "guide" ? "public" : "private",
-    currency: input.currency,
-  });
-  await db.insert(tripMembers).values({ tripId: id, userId, role: "owner" });
-  await db
-    .insert(tripDestinations)
-    .values(ordered.map((d, i) => ({ tripId: id, destinationId: d.id, position: i })));
   const sections =
     input.kind === "journal"
       ? [...DEFAULT_SECTIONS, { kind: "journal" as const, title: "Journal" }]
       : DEFAULT_SECTIONS;
-  await db
-    .insert(tripSections)
-    .values(sections.map((s, i) => ({ tripId: id, kind: s.kind, title: s.title, position: i })));
-  await db
-    .insert(tripLists)
-    .values({ tripId: id, name: "Places to visit", kind: "places", color: "coral", position: 0 });
   const days = buildDays({ startDate: input.startDate, endDate: input.endDate, dayCount });
-  await db
-    .insert(itineraryDays)
-    .values(days.map((d) => ({ tripId: id, dayIndex: d.dayIndex, date: d.date })));
-  await db
-    .insert(activities)
-    .values({ tripId: id, actorId: userId, type: "trip.created", summary: `created the trip` });
+  // One batch, in dependency order: a half-created trip with no owner membership row, or with
+  // no days, is not something the UI can recover from.
+  await db.batch([
+    db.insert(trips).values({
+      id,
+      ownerId: userId,
+      kind: input.kind,
+      name: input.name,
+      slug,
+      coverUrl: cover,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      dayCount,
+      visibility: input.kind === "guide" ? "public" : "private",
+      currency: input.currency,
+    }),
+    db.insert(tripMembers).values({ tripId: id, userId, role: "owner" }),
+    db
+      .insert(tripDestinations)
+      .values(ordered.map((d, i) => ({ tripId: id, destinationId: d.id, position: i }))),
+    db
+      .insert(tripSections)
+      .values(sections.map((s, i) => ({ tripId: id, kind: s.kind, title: s.title, position: i }))),
+    db
+      .insert(tripLists)
+      .values({ tripId: id, name: "Places to visit", kind: "places", color: "coral", position: 0 }),
+    db
+      .insert(itineraryDays)
+      .values(days.map((d) => ({ tripId: id, dayIndex: d.dayIndex, date: d.date }))),
+    db
+      .insert(activities)
+      .values({ tripId: id, actorId: userId, type: "trip.created", summary: "created the trip" }),
+  ]);
   revalidatePath("/trips");
   return { id, slug };
 });
@@ -153,16 +157,27 @@ export const updateTripDates = action(updateDatesSchema, async (input, userId) =
   const next = { startDate: input.startDate, endDate: input.endDate, dayCount: input.dayCount };
   const { create, update, drop } = reconcileDays(existing, next);
   const dayCount = buildDays(next).length;
-  for (const d of update) {
-    await db
-      .update(itineraryDays)
-      .set({ date: d.date })
-      .where(and(eq(itineraryDays.tripId, input.tripId), eq(itineraryDays.dayIndex, d.dayIndex)));
-  }
-  if (create.length)
-    await db
-      .insert(itineraryDays)
-      .values(create.map((d) => ({ tripId: input.tripId, dayIndex: d.dayIndex, date: d.date })));
+  // Reshaping the days is one batch: a partial pass leaves dates and day indexes disagreeing
+  // with the trip's own start and end.
+  const dayWrites = [
+    ...update.map((d) =>
+      db
+        .update(itineraryDays)
+        .set({ date: d.date })
+        .where(and(eq(itineraryDays.tripId, input.tripId), eq(itineraryDays.dayIndex, d.dayIndex))),
+    ),
+    ...(create.length
+      ? [
+          db
+            .insert(itineraryDays)
+            .values(
+              create.map((d) => ({ tripId: input.tripId, dayIndex: d.dayIndex, date: d.date })),
+            ),
+        ]
+      : []),
+  ];
+  if (dayWrites.length)
+    await db.batch(dayWrites as [(typeof dayWrites)[number], ...typeof dayWrites]);
   if (drop.length) {
     const dropped = existing.filter((d) => drop.includes(d.dayIndex));
     const droppedIds = dropped.map((d) => d.id);
@@ -170,7 +185,9 @@ export const updateTripDates = action(updateDatesSchema, async (input, userId) =
     const orphaned = await db
       .select()
       .from(itineraryItems)
-      .where(inArray(itineraryItems.dayId, droppedIds));
+      .where(
+        and(inArray(itineraryItems.dayId, droppedIds), eq(itineraryItems.tripId, input.tripId)),
+      );
     const placeIds = orphaned.map((i) => i.tripPlaceId).filter((x): x is string => Boolean(x));
     if (placeIds.length) {
       const [unscheduled] = await db
@@ -192,12 +209,18 @@ export const updateTripDates = action(updateDatesSchema, async (input, userId) =
             })
             .returning()
         )[0]!.id;
-      await db
-        .update(tripPlaces)
-        .set({ listId })
-        .where(and(inArray(tripPlaces.id, placeIds), eq(tripPlaces.listId, sqlNull())));
+      // Rehome the places and drop the days together, so a stop can never be lost between
+      // the two: its day is gone and it is in no list either.
+      await db.batch([
+        db
+          .update(tripPlaces)
+          .set({ listId })
+          .where(and(inArray(tripPlaces.id, placeIds), eq(tripPlaces.listId, sqlNull()))),
+        db.delete(itineraryDays).where(inArray(itineraryDays.id, droppedIds)),
+      ]);
+    } else {
+      await db.delete(itineraryDays).where(inArray(itineraryDays.id, droppedIds));
     }
-    await db.delete(itineraryDays).where(inArray(itineraryDays.id, droppedIds));
   }
   await db
     .update(trips)

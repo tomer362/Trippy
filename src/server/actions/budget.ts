@@ -77,16 +77,24 @@ async function writeShares(
   } catch (err) {
     throw err instanceof SplitError ? new Error(err.message) : err;
   }
-  await db.delete(expenseShares).where(eq(expenseShares.expenseId, expenseId));
-  if (mode === "none" || shares.length === 0) return;
-  await db.insert(expenseShares).values(
-    shares.map((s) => ({
-      expenseId,
-      userId: s.userId,
-      amount: fromCents(s.amountCents),
-      weight: mapped.find((m) => m.userId === s.userId)?.weight ?? null,
-    })),
-  );
+  const clear = db.delete(expenseShares).where(eq(expenseShares.expenseId, expenseId));
+  if (mode === "none" || shares.length === 0) {
+    await clear;
+    return;
+  }
+  // Replacing the shares has to be atomic: an expense left with an amount and no shares
+  // silently mis-computes every balance in the trip.
+  await db.batch([
+    clear,
+    db.insert(expenseShares).values(
+      shares.map((s) => ({
+        expenseId,
+        userId: s.userId,
+        amount: fromCents(s.amountCents),
+        weight: mapped.find((m) => m.userId === s.userId)?.weight ?? null,
+      })),
+    ),
+  ]);
 }
 
 /** Defaults an even split across every trip mate when the caller sends no participants. */

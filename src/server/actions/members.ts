@@ -106,9 +106,16 @@ export const acceptInvite = action(
         throw new Error("That invite was sent to a different email address");
     }
 
-    // Claim a use up front, in one conditional statement: reading the count and incrementing it
-    // separately lets simultaneous redemptions all slip past a maxUses of 1.
-    const claimed = await db
+    const [existing] = await db
+      .select()
+      .from(tripMembers)
+      .where(and(eq(tripMembers.tripId, invite.tripId), eq(tripMembers.userId, userId)))
+      .limit(1);
+
+    // Claim a use in one conditional statement — reading the count and incrementing it
+    // separately lets simultaneous redemptions all slip past a maxUses of 1 — and put the
+    // membership write in the same batch, so a failed join never burns a use.
+    const claim = db
       .update(tripInvites)
       .set({ uses: sql`${tripInvites.uses} + 1`, acceptedBy: userId })
       .where(
@@ -119,16 +126,13 @@ export const acceptInvite = action(
         ),
       )
       .returning({ id: tripInvites.id });
-    if (claimed.length === 0) throw new Error("That invite has been used up");
-
-    const [existing] = await db
-      .select()
-      .from(tripMembers)
-      .where(and(eq(tripMembers.tripId, invite.tripId), eq(tripMembers.userId, userId)))
-      .limit(1);
 
     if (!existing) {
-      await db.insert(tripMembers).values({ tripId: invite.tripId, userId, role: invite.role });
+      const [claimed] = await db.batch([
+        claim,
+        db.insert(tripMembers).values({ tripId: invite.tripId, userId, role: invite.role }),
+      ]);
+      if (claimed.length === 0) throw new Error("That invite has been used up");
       const [joiner] = await db
         .select({ name: user.name })
         .from(user)
@@ -160,10 +164,17 @@ export const acceptInvite = action(
         });
       }
     } else if (existing.role === "viewer" && invite.role === "editor") {
-      await db
-        .update(tripMembers)
-        .set({ role: "editor" })
-        .where(and(eq(tripMembers.tripId, invite.tripId), eq(tripMembers.userId, userId)));
+      const [claimed] = await db.batch([
+        claim,
+        db
+          .update(tripMembers)
+          .set({ role: "editor" })
+          .where(and(eq(tripMembers.tripId, invite.tripId), eq(tripMembers.userId, userId))),
+      ]);
+      if (claimed.length === 0) throw new Error("That invite has been used up");
+    } else {
+      // Already a member at this role or better: nothing to change, and no use to spend.
+      return { tripId: invite.tripId };
     }
 
     await publishTripChange(invite.tripId, { entity: "trip", actorId: userId });
@@ -215,21 +226,25 @@ export const transferOwnership = action(
       .where(and(eq(tripMembers.tripId, tripId), eq(tripMembers.userId, memberId)))
       .limit(1);
     if (!target) throw new Error("That person is not on this trip");
-    await db.update(trips).set({ ownerId: memberId }).where(eq(trips.id, tripId));
-    await db
-      .update(tripMembers)
-      .set({ role: "owner" })
-      .where(and(eq(tripMembers.tripId, tripId), eq(tripMembers.userId, memberId)));
-    await db
-      .update(tripMembers)
-      .set({ role: "editor" })
-      .where(and(eq(tripMembers.tripId, tripId), eq(tripMembers.userId, userId)));
-    await db.insert(activities).values({
-      tripId,
-      actorId: userId,
-      type: "trip.ownership",
-      summary: "transferred ownership",
-    });
+    // All or nothing. Landing between the trip's owner_id and the two role rows leaves a trip
+    // where getTripAccess backfills nobody as owner, so no one can manage it any more.
+    await db.batch([
+      db.update(trips).set({ ownerId: memberId }).where(eq(trips.id, tripId)),
+      db
+        .update(tripMembers)
+        .set({ role: "owner" })
+        .where(and(eq(tripMembers.tripId, tripId), eq(tripMembers.userId, memberId))),
+      db
+        .update(tripMembers)
+        .set({ role: "editor" })
+        .where(and(eq(tripMembers.tripId, tripId), eq(tripMembers.userId, userId))),
+      db.insert(activities).values({
+        tripId,
+        actorId: userId,
+        type: "trip.ownership",
+        summary: "transferred ownership",
+      }),
+    ]);
     revalidatePath(`/t/${tripId}/settings`);
     return null;
   },
