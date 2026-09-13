@@ -4,7 +4,15 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireTripAccess } from "@/server/authz";
 import { db } from "@/server/db";
-import { activities, comments, itineraryItems, reactions, tripPlaces } from "@/server/db/schema";
+import {
+  activities,
+  comments,
+  itineraryItems,
+  reactions,
+  tripLists,
+  tripPlaces,
+} from "@/server/db/schema";
+import { assertEntityInTrip } from "@/server/scope";
 import { publishTripChange } from "@/server/services/realtime";
 import { action } from "./_helpers";
 
@@ -28,6 +36,7 @@ export const addComment = action(
   }),
   async ({ tripId, entityType: type, entityId, body }, userId) => {
     await requireTripAccess(tripId, userId, "view");
+    await assertEntityInTrip(tripId, type, entityId);
     const [created] = await db
       .insert(comments)
       .values({ tripId, entityType: type, entityId, userId, body })
@@ -75,11 +84,13 @@ export const toggleReaction = action(
   }),
   async ({ tripId, entityType: type, entityId, emoji }, userId) => {
     await requireTripAccess(tripId, userId, "view");
+    await assertEntityInTrip(tripId, type, entityId);
     const existing = await db
       .select()
       .from(reactions)
       .where(
         and(
+          eq(reactions.tripId, tripId),
           eq(reactions.entityType, type),
           eq(reactions.entityId, entityId),
           eq(reactions.userId, userId),
@@ -92,6 +103,7 @@ export const toggleReaction = action(
         .delete(reactions)
         .where(
           and(
+            eq(reactions.tripId, tripId),
             eq(reactions.entityType, type),
             eq(reactions.entityId, entityId),
             eq(reactions.userId, userId),
@@ -99,7 +111,7 @@ export const toggleReaction = action(
           ),
         );
     } else {
-      await db.insert(reactions).values({ entityType: type, entityId, userId, emoji });
+      await db.insert(reactions).values({ tripId, entityType: type, entityId, userId, emoji });
     }
     revalidatePath(`/t/${tripId}`);
     await publishTripChange(tripId, { entity: "comments", actorId: userId });
@@ -128,13 +140,26 @@ export const undoActivity = action(
       order?: string[];
     };
     if (entry.type === "place.removed" && payload.tripPlaces?.length) {
-      await db.insert(tripPlaces).values(payload.tripPlaces);
+      // Restore into this trip only, and drop a list reference that has since been deleted —
+      // a stale one would now be rejected by the list-belongs-to-trip constraint.
+      const lists = await db
+        .select({ id: tripLists.id })
+        .from(tripLists)
+        .where(eq(tripLists.tripId, tripId));
+      const live = new Set(lists.map((l) => l.id));
+      await db.insert(tripPlaces).values(
+        payload.tripPlaces.map((row) => ({
+          ...row,
+          tripId,
+          listId: row.listId && live.has(row.listId) ? row.listId : null,
+        })),
+      );
     } else if (entry.type === "itinerary.optimized" && payload.order?.length) {
       const ids = payload.order;
       const owned = await db
         .select({ id: itineraryItems.id })
         .from(itineraryItems)
-        .where(inArray(itineraryItems.id, ids));
+        .where(and(inArray(itineraryItems.id, ids), eq(itineraryItems.tripId, tripId)));
       const ownedIds = new Set(owned.map((o) => o.id));
       for (const [position, itemId] of ids.entries()) {
         if (!ownedIds.has(itemId)) continue;

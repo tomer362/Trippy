@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { ReservationsPanel } from "@/components/reservations/reservations-panel";
 import { features } from "@/env";
 import { getSession } from "@/lib/auth";
@@ -15,7 +15,9 @@ export default async function ReservationsPage({
   const { tripId } = await params;
   const session = await getSession();
   const access = await getTripAccess(tripId, session?.user.id ?? null);
-  if (!access?.canView) notFound();
+  if (!access) notFound();
+  // Confirmation numbers and tickets are members-only, even on a public or link-shared trip.
+  if (!access.isMember) redirect(`/t/${tripId}`);
   const [reservations, attachments] = await Promise.all([
     getReservations(tripId),
     getAttachments(tripId),

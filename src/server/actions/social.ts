@@ -48,10 +48,17 @@ export const respondToFriendRequest = action(
   z.object({ requesterId: z.string(), accept: z.boolean() }),
   async ({ requesterId, accept }, userId) => {
     if (accept) {
+      // Only a pending request can be accepted, so a blocked pair cannot be flipped back open.
       await db
         .update(friendship)
         .set({ status: "accepted", respondedAt: new Date() })
-        .where(and(eq(friendship.requesterId, requesterId), eq(friendship.addresseeId, userId)));
+        .where(
+          and(
+            eq(friendship.requesterId, requesterId),
+            eq(friendship.addresseeId, userId),
+            eq(friendship.status, "pending"),
+          ),
+        );
     } else {
       await db
         .delete(friendship)

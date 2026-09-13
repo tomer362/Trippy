@@ -8,6 +8,7 @@ import { requireTripAccess } from "@/server/authz";
 import { db } from "@/server/db";
 import { activities, itineraryDays, itineraryItems, tripPlaces, trips } from "@/server/db/schema";
 import { getItinerary, placeSequence } from "@/server/queries/itinerary";
+import { assertInTrip } from "@/server/scope";
 import { publishTripChange } from "@/server/services/realtime";
 import { buildDayMatrix, ensureSequenceLegs, MAX_OPTIMIZE_STOPS } from "@/server/services/routing";
 import { action } from "./_helpers";
@@ -38,6 +39,8 @@ export const updateDay = action(
   }),
   async ({ tripId, dayId, ...patch }, userId) => {
     await requireTripAccess(tripId, userId, "edit");
+    // startPlaceId/endPlaceId point at the shared places table, which is not trip-scoped.
+    await assertInTrip(tripId, { day: dayId });
     await db
       .update(itineraryDays)
       .set({ ...patch, version: sql`${itineraryDays.version} + 1` })
@@ -60,10 +63,11 @@ const addItemSchema = z.object({
 
 export const addItineraryItem = action(addItemSchema, async (input, userId) => {
   await requireTripAccess(input.tripId, userId, "edit");
+  await assertInTrip(input.tripId, { day: input.dayId, tripPlace: input.tripPlaceId });
   const [row] = await db
     .select({ max: max(itineraryItems.position) })
     .from(itineraryItems)
-    .where(eq(itineraryItems.dayId, input.dayId));
+    .where(and(eq(itineraryItems.dayId, input.dayId), eq(itineraryItems.tripId, input.tripId)));
   const [created] = await db
     .insert(itineraryItems)
     .values({
@@ -123,6 +127,7 @@ export const reorderDayItems = action(
   z.object({ tripId: z.string(), dayId: z.string(), orderedIds: z.array(z.string()).max(200) }),
   async ({ tripId, dayId, orderedIds }, userId) => {
     await requireTripAccess(tripId, userId, "edit");
+    await assertInTrip(tripId, { day: dayId, item: orderedIds });
     for (const [position, id] of orderedIds.entries()) {
       await db
         .update(itineraryItems)
@@ -145,21 +150,29 @@ export const moveItemToDay = action(
   }),
   async ({ tripId, id, dayId, index }, userId) => {
     await requireTripAccess(tripId, userId, "edit");
+    await assertInTrip(tripId, { day: dayId, item: id });
     const siblings = await db
       .select()
       .from(itineraryItems)
-      .where(eq(itineraryItems.dayId, dayId))
+      .where(and(eq(itineraryItems.dayId, dayId), eq(itineraryItems.tripId, tripId)))
       .orderBy(itineraryItems.position);
     const at = Math.min(index ?? siblings.length, siblings.length);
     const ordered = [...siblings.map((s) => s.id).filter((s) => s !== id)];
     ordered.splice(at, 0, id);
-    await db
-      .update(itineraryItems)
-      .set({ dayId })
-      .where(and(eq(itineraryItems.id, id), eq(itineraryItems.tripId, tripId)));
-    for (const [position, itemId] of ordered.entries()) {
-      await db.update(itineraryItems).set({ position }).where(eq(itineraryItems.id, itemId));
-    }
+    // One batch, and every write is pinned to this trip: the ordering pass used to key on the
+    // item id alone, which let a foreign dayId reshuffle another trip's day.
+    await db.batch([
+      db
+        .update(itineraryItems)
+        .set({ dayId })
+        .where(and(eq(itineraryItems.id, id), eq(itineraryItems.tripId, tripId))),
+      ...ordered.map((itemId, position) =>
+        db
+          .update(itineraryItems)
+          .set({ position })
+          .where(and(eq(itineraryItems.id, itemId), eq(itineraryItems.tripId, tripId))),
+      ),
+    ]);
     await touch(tripId);
     await publishTripChange(tripId, { entity: "itinerary", actorId: userId });
     return null;
@@ -175,6 +188,7 @@ export const addPlacesToDay = action(
   }),
   async ({ tripId, dayId, tripPlaceIds }, userId) => {
     await requireTripAccess(tripId, userId, "edit");
+    await assertInTrip(tripId, { day: dayId });
     const valid = await db
       .select({ id: tripPlaces.id })
       .from(tripPlaces)
@@ -182,7 +196,7 @@ export const addPlacesToDay = action(
     const [row] = await db
       .select({ max: max(itineraryItems.position) })
       .from(itineraryItems)
-      .where(eq(itineraryItems.dayId, dayId));
+      .where(and(eq(itineraryItems.dayId, dayId), eq(itineraryItems.tripId, tripId)));
     let position = (row?.max ?? -1) + 1;
     if (valid.length) {
       await db.insert(itineraryItems).values(
@@ -205,7 +219,8 @@ export const addPlacesToDay = action(
 export const refreshDayLegs = action(
   z.object({ tripId: z.string(), dayId: z.string() }),
   async ({ tripId, dayId }, userId) => {
-    const access = await requireTripAccess(tripId, userId, "view");
+    // Each refresh can spend a handful of Routes calls, so it is an editor's action.
+    const access = await requireTripAccess(tripId, userId, "edit");
     const days = await getItinerary(tripId, access.trip.defaultTravelMode);
     const day = days.find((d) => d.id === dayId);
     if (!day) throw new Error("Day not found");

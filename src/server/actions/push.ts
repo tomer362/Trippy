@@ -23,9 +23,12 @@ export const savePushSubscription = action(subscriptionSchema, async (input, use
       auth: input.auth,
       userAgent: input.userAgent ?? null,
     })
+    // Keyed on the endpoint, so re-registering the same device refreshes its keys — but never
+    // reassigns someone else's endpoint to the caller.
     .onConflictDoUpdate({
       target: pushSubscriptions.endpoint,
-      set: { userId, p256dh: input.p256dh, auth: input.auth },
+      set: { p256dh: input.p256dh, auth: input.auth },
+      where: eq(pushSubscriptions.userId, userId),
     });
   return null;
 });

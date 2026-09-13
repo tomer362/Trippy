@@ -1,10 +1,10 @@
 "use server";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { fromCents, toCents } from "@/lib/money";
 import { computeShares, type Participant, SplitError } from "@/lib/split";
-import { requireTripAccess } from "@/server/authz";
+import { AccessDeniedError, requireTripAccess } from "@/server/authz";
 import { db } from "@/server/db";
 import {
   budgets,
@@ -14,6 +14,7 @@ import {
   tripMembers,
   trips,
 } from "@/server/db/schema";
+import { assertInTrip } from "@/server/scope";
 import { publishTripChange } from "@/server/services/realtime";
 import { action } from "./_helpers";
 
@@ -103,6 +104,7 @@ async function participantsOrMembers(
 
 export const addExpense = action(expenseSchema, async (input, userId) => {
   await requireTripAccess(input.tripId, userId, "edit");
+  await assertInTrip(input.tripId, { tripPlace: input.tripPlaceId });
   const totalCents = toCents(input.amount);
   const participants =
     input.splitMode === "none" ? [] : await participantsOrMembers(input.tripId, input.participants);
@@ -134,6 +136,7 @@ export const updateExpense = action(
   expenseSchema.partial().extend({ tripId: z.string(), id: z.string() }),
   async ({ tripId, id, participants, ...patch }, userId) => {
     await requireTripAccess(tripId, userId, "edit");
+    await assertInTrip(tripId, { expense: id, tripPlace: patch.tripPlaceId });
     const [existing] = await db
       .select()
       .from(expenses)
@@ -178,7 +181,9 @@ export const setBudget = action(
     personal: z.boolean().default(false),
   }),
   async ({ tripId, amount, currency, personal }, userId) => {
-    await requireTripAccess(tripId, userId, personal ? "view" : "edit");
+    const access = await requireTripAccess(tripId, userId, personal ? "view" : "edit");
+    // A personal budget is a member's own note-to-self; a passer-by on a public trip has none.
+    if (personal && !access.isMember) throw new AccessDeniedError();
     const scope = personal ? userId : null;
     const existing = await db
       .select({ id: budgets.id })
@@ -218,8 +223,19 @@ export const recordSettlement = action(
     note: z.string().max(200).nullable().optional(),
   }),
   async (input, userId) => {
-    await requireTripAccess(input.tripId, userId, "view");
+    await requireTripAccess(input.tripId, userId, "edit");
     if (input.fromUserId === input.toUserId) throw new Error("Pick two different people");
+    // Both sides have to be on the trip, or the ledger can be seeded with arbitrary user ids.
+    const parties = await db
+      .select({ userId: tripMembers.userId })
+      .from(tripMembers)
+      .where(
+        and(
+          eq(tripMembers.tripId, input.tripId),
+          inArray(tripMembers.userId, [input.fromUserId, input.toUserId]),
+        ),
+      );
+    if (parties.length !== 2) throw new Error("Both people must be on this trip");
     await db.insert(settlements).values({
       tripId: input.tripId,
       fromUserId: input.fromUserId,

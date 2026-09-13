@@ -62,11 +62,32 @@ export const storageEnabled = () => features.blob;
 
 export async function deleteStored(url: string): Promise<void> {
   if (!features.blob) return;
+  if (!isStoredBlobUrl(url)) {
+    console.error("refusing to delete a URL that is not in our blob store", url);
+    return;
+  }
   try {
     await del(url, { token: env.BLOB_READ_WRITE_TOKEN });
   } catch (err) {
     console.error("blob delete failed", err);
   }
+}
+
+/**
+ * Vercel Blob serves public files from this host and nowhere else. Stored URLs originate from
+ * the browser upload, so they are caller-controlled: anything not on this host must never be
+ * redirected to or handed to the delete API.
+ */
+const BLOB_HOST_SUFFIX = ".public.blob.vercel-storage.com";
+
+export function isStoredBlobUrl(raw: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return false;
+  }
+  return url.protocol === "https:" && url.hostname.endsWith(BLOB_HOST_SUFFIX);
 }
 
 /** Streams a private file for an authorised viewer. */

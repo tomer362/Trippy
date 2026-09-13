@@ -270,8 +270,17 @@ export const convertTripKind = action(
   },
 );
 
-/** Bumps the view counter for a published guide. */
+/**
+ * Bumps the view counter for a published guide. Counted only for trips that are actually
+ * public, so the counter cannot be used to probe or inflate private trips.
+ */
 export const recordGuideView = action(z.object({ tripId: z.string() }), async ({ tripId }) => {
+  const [trip] = await db
+    .select({ id: trips.id })
+    .from(trips)
+    .where(and(eq(trips.id, tripId), eq(trips.visibility, "public")))
+    .limit(1);
+  if (!trip) return null;
   await db
     .insert(guideStats)
     .values({ tripId, views: 1 })

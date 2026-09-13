@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getSession } from "@/lib/auth";
 import { extractFromText, extractPlaceCandidates, fromGoogleMapsUrl } from "@/lib/extract-places";
+import { safeFetch, UnsafeUrlError } from "@/server/services/safe-fetch";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -31,14 +32,12 @@ export async function POST(req: Request) {
   const direct = fromGoogleMapsUrl(url);
 
   try {
-    const res = await fetch(url, {
+    const res = await safeFetch(url, {
       headers: {
         "User-Agent": "Trippy/0.1 (trip planner; +https://github.com/tomer362/Trippy)",
         Accept: "text/html,application/xhtml+xml",
       },
-      redirect: "follow",
-      signal: AbortSignal.timeout(12_000),
-      cache: "no-store",
+      timeoutMs: 12_000,
     });
     if (!res.ok) {
       return NextResponse.json(
@@ -82,6 +81,12 @@ export async function POST(req: Request) {
       source: "url",
     });
   } catch (err) {
+    if (err instanceof UnsafeUrlError) {
+      return NextResponse.json(
+        { candidates: direct ? [direct] : [], error: err.message, source: "url" },
+        { status: direct ? 200 : 400 },
+      );
+    }
     console.error("import fetch failed", err);
     return NextResponse.json(
       {
