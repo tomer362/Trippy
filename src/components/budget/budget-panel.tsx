@@ -9,6 +9,7 @@ import { Avatar, EmptyState } from "@/components/ui/misc";
 import { formatDayLabel } from "@/lib/days";
 import { formatMoney, fromCents } from "@/lib/money";
 import { totalsBy } from "@/lib/split";
+import { useOnline } from "@/lib/use-online";
 import { recordSettlement, setBudget } from "@/server/actions/budget";
 import type { BudgetData, ExpenseDTO } from "@/server/queries/budget";
 import type { TripMemberInfo } from "@/server/queries/trips";
@@ -19,7 +20,7 @@ const CATEGORY_LABEL = new Map(CATEGORIES.map((c) => [c.value as string, c.label
 
 export function BudgetPanel({
   tripId,
-  canEdit,
+  canEdit: canEditProp,
   currentUserId,
   members,
   days,
@@ -32,6 +33,10 @@ export function BudgetPanel({
   days: Array<{ dayIndex: number; date: string | null }>;
   data: BudgetData;
 }) {
+  // Every write here is a server action, which throws with no connection — so the
+  // controls go read-only rather than inviting an edit that cannot be sent.
+  const online = useOnline();
+  const canEdit = canEditProp && online;
   const router = useRouter();
   const [, start] = useTransition();
   const [editing, setEditing] = useState<ExpenseDTO | null>(null);

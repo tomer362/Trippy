@@ -140,4 +140,6 @@ Vercel Hobby cron runs at most once a day, which is why these live in GitHub Act
 - `pnpm check` → typecheck, lint (Biome), unit tests (Vitest).
 - `pnpm test:e2e` → Playwright. Starts the dev server with `AUTH_TEST_BYPASS=1`, which enables
   a test-only email/password login route. Never set this in production. Needs a seeded
-  `DATABASE_URL`; see `e2e/README.md`.
+  `DATABASE_URL` pointing at a **Neon** database — the HTTP driver cannot talk to a plain
+  Postgres server — so CI runs this suite only when `E2E_DATABASE_URL` and `RUN_E2E` are set.
+  See `e2e/README.md`.

@@ -22,24 +22,14 @@ jobs:
       - run: pnpm exec drizzle-kit check
       - run: pnpm build
 
+  # The app talks to Postgres through Neon's HTTP driver, which cannot speak to a plain
+  # Postgres service container — so this needs a real (throwaway) Neon branch. Without the
+  # secret the job skips rather than failing, so a fresh clone or fork still goes green.
   e2e:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: trippy
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+    if: ${{ github.event_name == 'push' && vars.RUN_E2E == 'true' }}
     env:
-      # The suite needs a migrated and seeded database; it needs no Google keys, because
-      # destination search falls back to the curated table for anonymous callers.
-      DATABASE_URL: postgres://postgres:postgres@localhost:5432/trippy
+      DATABASE_URL: ${{ secrets.E2E_DATABASE_URL }}
       AUTH_TEST_BYPASS: "1"
       BETTER_AUTH_SECRET: e2e-secret-not-used-anywhere-real
     steps:
@@ -51,6 +41,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
+      # Needs no Google keys: destination search falls back to the curated table.
       - run: pnpm db:migrate
       - run: pnpm db:seed
       - run: pnpm test:e2e

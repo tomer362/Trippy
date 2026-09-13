@@ -6,7 +6,7 @@ import { EMPTY_PROFILE } from "@/lib/travel-profile";
 import { getTripAccess } from "@/server/authz";
 import { getGuidesForTripDestinations } from "@/server/queries/discovery";
 import { getFriendsData } from "@/server/queries/social";
-import { getTripDestinations } from "@/server/queries/trips";
+import { getTripDays, getTripDestinations } from "@/server/queries/trips";
 import { unionBBox } from "@/server/services/destinations";
 import {
   friendPlacesForTrip,
@@ -30,7 +30,7 @@ export default async function ExplorePage({ params }: { params: Promise<{ tripId
     userId ? getTravelProfile(userId) : Promise.resolve(EMPTY_PROFILE),
     userId ? getFriendsData(userId) : Promise.resolve(null),
   ]);
-  const [loved, friendPlaces, pastDays] = await Promise.all([
+  const [loved, friendPlaces, pastDays, tripDays] = await Promise.all([
     userId ? lovedPlacesForTrip(tripId, userId) : Promise.resolve([]),
     userId && friends
       ? friendPlacesForTrip(
@@ -40,6 +40,7 @@ export default async function ExplorePage({ params }: { params: Promise<{ tripId
         )
       : Promise.resolve([]),
     userId ? pastDaysForTrip(tripId, userId) : Promise.resolve([]),
+    getTripDays(tripId),
   ]);
 
   const view = unionBBox(
@@ -56,6 +57,7 @@ export default async function ExplorePage({ params }: { params: Promise<{ tripId
       lovedPlaces={loved}
       friendPlaces={friendPlaces}
       pastDays={pastDays}
+      tripDays={tripDays}
       profile={profile}
       mapsApiKey={env.NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY ?? null}
       mapId={env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID ?? null}

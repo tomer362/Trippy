@@ -6,7 +6,14 @@ import { optimizeOrder, tourCost } from "@/lib/optimize";
 import type { TravelMode } from "@/lib/types";
 import { requireTripAccess } from "@/server/authz";
 import { db } from "@/server/db";
-import { activities, itineraryDays, itineraryItems, tripPlaces, trips } from "@/server/db/schema";
+import {
+  activities,
+  itineraryDays,
+  itineraryItems,
+  places,
+  tripPlaces,
+  trips,
+} from "@/server/db/schema";
 import { getItinerary, placeSequence } from "@/server/queries/itinerary";
 import { assertInTrip } from "@/server/scope";
 import { publishTripChange } from "@/server/services/realtime";
@@ -212,6 +219,92 @@ export const addPlacesToDay = action(
     await touch(tripId);
     await publishTripChange(tripId, { entity: "itinerary", id: dayId, actorId: userId });
     return { added: valid.length };
+  },
+);
+
+/**
+ * Copies the stops of a day from one of the traveller's own past trips onto a day of this one.
+ * The places are saved into this trip as new rows — nothing is shared between trips — and the
+ * caller must be able to see the source and edit the destination.
+ */
+export const copyDayFromPastTrip = action(
+  z.object({ tripId: z.string(), dayId: z.string(), sourceDayId: z.string() }),
+  async ({ tripId, dayId, sourceDayId }, userId) => {
+    await requireTripAccess(tripId, userId, "edit");
+    await assertInTrip(tripId, { day: dayId });
+
+    const [source] = await db
+      .select({ tripId: itineraryDays.tripId })
+      .from(itineraryDays)
+      .where(eq(itineraryDays.id, sourceDayId))
+      .limit(1);
+    if (!source) throw new Error("That day no longer exists");
+    // Reading someone else's day is still a read of their trip.
+    await requireTripAccess(source.tripId, userId, "view");
+
+    const rows = await db
+      .select({ placeId: tripPlaces.placeId, notes: tripPlaces.notes, name: places.name })
+      .from(itineraryItems)
+      .innerJoin(tripPlaces, eq(tripPlaces.id, itineraryItems.tripPlaceId))
+      .innerJoin(places, eq(places.id, tripPlaces.placeId))
+      .where(and(eq(itineraryItems.dayId, sourceDayId), eq(itineraryItems.tripId, source.tripId)))
+      .orderBy(itineraryItems.position);
+    if (rows.length === 0) throw new Error("That day has no places to copy");
+
+    // Skip anything this trip already has, so copying twice does not duplicate the day.
+    const existing = await db
+      .select({ placeId: tripPlaces.placeId })
+      .from(tripPlaces)
+      .where(eq(tripPlaces.tripId, tripId));
+    const have = new Set(existing.map((e) => e.placeId));
+    const fresh = rows.filter((r) => !have.has(r.placeId));
+    if (fresh.length === 0) return { added: 0 };
+
+    const [listRow] = await db
+      .select({ max: max(tripPlaces.position) })
+      .from(tripPlaces)
+      .where(eq(tripPlaces.tripId, tripId));
+    let placePosition = (listRow?.max ?? -1) + 1;
+    const created = await db
+      .insert(tripPlaces)
+      .values(
+        fresh.map((r) => ({
+          tripId,
+          listId: null,
+          placeId: r.placeId,
+          notes: r.notes,
+          position: placePosition++,
+          addedBy: userId,
+        })),
+      )
+      .returning({ id: tripPlaces.id });
+
+    const [dayRow] = await db
+      .select({ max: max(itineraryItems.position) })
+      .from(itineraryItems)
+      .where(and(eq(itineraryItems.dayId, dayId), eq(itineraryItems.tripId, tripId)));
+    let itemPosition = (dayRow?.max ?? -1) + 1;
+    await db.insert(itineraryItems).values(
+      created.map((c) => ({
+        tripId,
+        dayId,
+        kind: "place" as const,
+        tripPlaceId: c.id,
+        position: itemPosition++,
+      })),
+    );
+
+    await db.insert(activities).values({
+      tripId,
+      actorId: userId,
+      type: "day.copied",
+      entityType: "itinerary_day",
+      entityId: dayId,
+      summary: `copied ${created.length} stops from a past trip`,
+    });
+    await touch(tripId);
+    await publishTripChange(tripId, { entity: "itinerary", id: dayId, actorId: userId });
+    return { added: created.length };
   },
 );
 

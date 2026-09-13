@@ -93,3 +93,26 @@ export function directionsUrl(
   if (waypoints.length) params.set("waypoints", waypoints.map(point).join("|"));
   return `https://www.google.com/maps/dir/?${params}`;
 }
+
+/**
+ * Apple Maps deep link, for the iOS case. Apple's scheme has no multi-stop form, so a day
+ * with intermediate stops falls back to the first leg — better than sending an iPhone user
+ * to a Google Maps web page they then have to re-enter.
+ */
+export function appleDirectionsUrl(stops: Array<LatLng>, mode: string): string | null {
+  if (stops.length < 2) return null;
+  const dirflg = mode === "walk" ? "w" : mode === "transit" ? "r" : "d";
+  const origin = stops[0]!;
+  const destination = stops[1]!;
+  const params = new URLSearchParams({
+    saddr: `${origin.lat},${origin.lng}`,
+    daddr: `${destination.lat},${destination.lng}`,
+    dirflg,
+  });
+  return `https://maps.apple.com/?${params}`;
+}
+
+/** True for iOS and iPadOS, where Apple Maps is the system default. */
+export function prefersAppleMaps(userAgent: string): boolean {
+  return /iPad|iPhone|iPod/.test(userAgent) || (/Macintosh/.test(userAgent) && "ontouchend" in {});
+}
