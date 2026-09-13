@@ -35,11 +35,15 @@ export const deleteAccount = action(
         .orderBy(asc(tripMembers.joinedAt))
         .limit(1);
       if (successor) {
-        await db.update(trips).set({ ownerId: successor.userId }).where(eq(trips.id, trip.id));
-        await db
-          .update(tripMembers)
-          .set({ role: "owner" })
-          .where(and(eq(tripMembers.tripId, trip.id), eq(tripMembers.userId, successor.userId)));
+        // Both halves of the handover together, or the trip ends up owned by someone whose
+        // membership row still says editor — and then nobody can manage it.
+        await db.batch([
+          db.update(trips).set({ ownerId: successor.userId }).where(eq(trips.id, trip.id)),
+          db
+            .update(tripMembers)
+            .set({ role: "owner" })
+            .where(and(eq(tripMembers.tripId, trip.id), eq(tripMembers.userId, successor.userId))),
+        ]);
       } else {
         // Nobody else can carry it on, so it goes with the account.
         await db.delete(trips).where(eq(trips.id, trip.id));

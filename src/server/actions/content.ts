@@ -14,9 +14,10 @@ import {
   tripNotes,
   trips,
 } from "@/server/db/schema";
+import { assertInTrip } from "@/server/scope";
 import { publishTripChange } from "@/server/services/realtime";
-import { deleteStored, tripIdFromPath } from "@/server/services/storage";
-import { action } from "./_helpers";
+import { deleteStored, isStoredBlobUrl, tripIdFromPath } from "@/server/services/storage";
+import { action, ConflictError } from "./_helpers";
 
 async function touch(tripId: string, path = "") {
   await db.update(trips).set({ updatedAt: new Date() }).where(eq(trips.id, tripId));
@@ -25,21 +26,32 @@ async function touch(tripId: string, path = "") {
 
 /* -------------------------------- notes --------------------------------- */
 
-/** Rich-text notes are stored as the editor's own JSON document. */
+/**
+ * Rich-text notes are stored as the editor's own JSON document. Long-form prose is the one
+ * place where a blind overwrite really destroys work, so the caller may pass the version it
+ * loaded and be told to refresh rather than silently replacing someone else's paragraphs.
+ */
 export const saveTripNotes = action(
-  z.object({ tripId: z.string(), body: z.unknown() }),
-  async ({ tripId, body }, userId) => {
+  z.object({ tripId: z.string(), body: z.unknown(), expectedVersion: z.number().int().optional() }),
+  async ({ tripId, body, expectedVersion }, userId) => {
     await requireTripAccess(tripId, userId, "edit");
-    await db
+    const set = { body, version: sql`${tripNotes.version} + 1`, updatedAt: new Date() };
+    // A version of 0 means "there were no notes when I loaded", so the insert path is right —
+    // but it must still refuse if someone has created them since, hence the setWhere.
+    const [row] = await db
       .insert(tripNotes)
       .values({ tripId, body })
       .onConflictDoUpdate({
         target: tripNotes.tripId,
-        set: { body, version: sql`${tripNotes.version} + 1`, updatedAt: new Date() },
-      });
+        set,
+        setWhere:
+          expectedVersion === undefined ? undefined : eq(tripNotes.version, expectedVersion),
+      })
+      .returning({ version: tripNotes.version });
+    if (!row) throw new ConflictError();
     await touch(tripId);
     await publishTripChange(tripId, { entity: "trip", actorId: userId });
-    return null;
+    return { version: row.version };
   },
 );
 
@@ -152,15 +164,6 @@ export const deleteChecklist = action(
   },
 );
 
-async function assertChecklistInTrip(tripId: string, checklistId: string) {
-  const [row] = await db
-    .select({ id: checklists.id })
-    .from(checklists)
-    .where(and(eq(checklists.id, checklistId), eq(checklists.tripId, tripId)))
-    .limit(1);
-  if (!row) throw new Error("Checklist not found");
-}
-
 export const addChecklistItem = action(
   z.object({
     tripId: z.string(),
@@ -169,7 +172,7 @@ export const addChecklistItem = action(
   }),
   async ({ tripId, checklistId, text }, userId) => {
     await requireTripAccess(tripId, userId, "edit");
-    await assertChecklistInTrip(tripId, checklistId);
+    await assertInTrip(tripId, { checklist: checklistId });
     const [row] = await db
       .select({ max: max(checklistItems.position) })
       .from(checklistItems)
@@ -197,7 +200,7 @@ export const setChecklistItem = action(
   async ({ tripId, checklistId, id, ...patch }, userId) => {
     const level = patch.text !== undefined || patch.assignedTo !== undefined ? "edit" : "view";
     await requireTripAccess(tripId, userId, level);
-    await assertChecklistInTrip(tripId, checklistId);
+    await assertInTrip(tripId, { checklist: checklistId });
     await db
       .update(checklistItems)
       .set(patch)
@@ -212,7 +215,7 @@ export const removeChecklistItem = action(
   z.object({ tripId: z.string(), checklistId: z.string(), id: z.string() }),
   async ({ tripId, checklistId, id }, userId) => {
     await requireTripAccess(tripId, userId, "edit");
-    await assertChecklistInTrip(tripId, checklistId);
+    await assertInTrip(tripId, { checklist: checklistId });
     await db
       .delete(checklistItems)
       .where(and(eq(checklistItems.id, id), eq(checklistItems.checklistId, checklistId)));
@@ -229,7 +232,7 @@ export const reorderChecklistItems = action(
   }),
   async ({ tripId, checklistId, orderedIds }, userId) => {
     await requireTripAccess(tripId, userId, "edit");
-    await assertChecklistInTrip(tripId, checklistId);
+    await assertInTrip(tripId, { checklist: checklistId });
     for (const [position, id] of orderedIds.entries()) {
       await db
         .update(checklistItems)
@@ -329,15 +332,25 @@ export const updateJournalEntry = action(
       .regex(/^\d{4}-\d{2}-\d{2}$/)
       .nullable()
       .optional(),
+    expectedVersion: z.number().int().optional(),
   }),
-  async ({ tripId, id, ...patch }, userId) => {
+  async ({ tripId, id, expectedVersion, ...patch }, userId) => {
     await requireTripAccess(tripId, userId, "edit");
-    await db
+    const updated = await db
       .update(journalEntries)
       .set({ ...patch, version: sql`${journalEntries.version} + 1` })
-      .where(and(eq(journalEntries.id, id), eq(journalEntries.tripId, tripId)));
+      .where(
+        and(
+          eq(journalEntries.id, id),
+          eq(journalEntries.tripId, tripId),
+          ...(expectedVersion === undefined ? [] : [eq(journalEntries.version, expectedVersion)]),
+        ),
+      )
+      .returning({ version: journalEntries.version });
+    if (updated.length === 0)
+      throw expectedVersion === undefined ? new Error("Entry not found") : new ConflictError();
     await touch(tripId, "/journal");
-    return null;
+    return { version: updated[0]!.version };
   },
 );
 
@@ -345,10 +358,17 @@ export const removeJournalEntry = action(
   z.object({ tripId: z.string(), id: z.string() }),
   async ({ tripId, id }, userId) => {
     await requireTripAccess(tripId, userId, "edit");
-    const photos = await db.select().from(journalPhotos).where(eq(journalPhotos.entryId, id));
-    await db
+    // Read the photos before the delete, because the entry cascades them away, but scope the
+    // read to this trip so a forged id can never reach another trip's files.
+    const photos = await db
+      .select({ url: journalPhotos.url })
+      .from(journalPhotos)
+      .where(and(eq(journalPhotos.entryId, id), eq(journalPhotos.tripId, tripId)));
+    const removed = await db
       .delete(journalEntries)
-      .where(and(eq(journalEntries.id, id), eq(journalEntries.tripId, tripId)));
+      .where(and(eq(journalEntries.id, id), eq(journalEntries.tripId, tripId)))
+      .returning({ id: journalEntries.id });
+    if (removed.length === 0) throw new Error("Journal entry not found");
     for (const p of photos) await deleteStored(p.url);
     await touch(tripId, "/journal");
     return null;
@@ -360,7 +380,7 @@ export const addJournalPhoto = action(
   z.object({
     tripId: z.string(),
     entryId: z.string(),
-    url: z.string().url(),
+    url: z.string().url().refine(isStoredBlobUrl, "That file is not in our storage"),
     pathname: z.string().min(1),
     width: z.number().int().positive().nullable().optional(),
     height: z.number().int().positive().nullable().optional(),
@@ -371,6 +391,7 @@ export const addJournalPhoto = action(
   }),
   async (input, userId) => {
     await requireTripAccess(input.tripId, userId, "edit");
+    await assertInTrip(input.tripId, { journalEntry: input.entryId });
     if (tripIdFromPath(input.pathname) !== input.tripId)
       throw new Error("That photo does not belong to this trip");
     const [row] = await db

@@ -6,6 +6,7 @@ import { type CostMatrix, haversineMatrix } from "@/lib/optimize";
 import type { TravelMode } from "@/lib/types";
 import { db } from "@/server/db";
 import { places, routeLegs } from "@/server/db/schema";
+import { charge } from "@/server/rate-limit";
 import { computeRoute, computeRouteMatrix } from "./google/routes";
 
 /** Legs are cached for 30 days, the longest Google allows us to keep derived coordinates. */
@@ -81,15 +82,24 @@ export async function getCachedSequenceLegs(
 export async function ensureSequenceLegs(
   placeIds: string[],
   mode: TravelMode,
+  /** Charged for the legs actually computed; omit only where there is no user to bill. */
+  userId?: string,
 ): Promise<Array<Leg | null>> {
   const pairs = placeIds
     .slice(0, -1)
     .map((from, i) => [from, placeIds[i + 1]!] as [string, string]);
   if (pairs.length === 0) return [];
   const cache = await cachedLegs(pairs, mode);
-  const missing = pairs
+  let missing = pairs
     .filter(([from, to]) => !cache.has(key(from, to, mode)))
     .slice(0, MAX_NEW_LEGS_PER_CALL);
+  // Metered on the calls we are about to make, not on the request, so a cached day is free
+  // and a runaway caller degrades to straight-line estimates rather than an error.
+  if (missing.length > 0 && userId && features.mapsServer) {
+    const verdict = await charge("routes.legs", `u:${userId}`, missing.length);
+    if (!verdict.ok) missing = [];
+    else if (verdict.remaining < missing.length) missing = missing.slice(0, verdict.remaining);
+  }
   if (missing.length > 0) {
     const coords = await placeCoords([...new Set(missing.flat())]);
     for (const [from, to] of missing) {
@@ -183,9 +193,15 @@ async function placeCoords(ids: string[]): Promise<Map<string, { lat: number; ln
 export async function buildDayMatrix(
   coords: Array<{ lat: number; lng: number }>,
   mode: TravelMode,
+  /** Charged n² route-matrix elements; without budget we fall back to straight lines. */
+  userId?: string,
 ): Promise<{ matrix: CostMatrix; estimated: boolean }> {
   if (!features.mapsServer || coords.length > MAX_OPTIMIZE_STOPS)
     return { matrix: haversineMatrix(coords), estimated: true };
+  if (userId) {
+    const verdict = await charge("routes.legs", `u:${userId}`, coords.length);
+    if (!verdict.ok) return { matrix: haversineMatrix(coords), estimated: true };
+  }
   try {
     const cells = await computeRouteMatrix(coords, mode);
     const matrix: CostMatrix = coords.map(() => coords.map(() => Number.NaN));

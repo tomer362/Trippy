@@ -155,8 +155,12 @@ empty days.
   (friends of any member can view), **Public** (listed on profiles, destination pages, Explore;
   indexable at `/p/[slug]`).
 - Live updates: Pusher channel per trip carries invalidation hints; clients refetch and merge.
-  Presence shows who is viewing; optimistic updates make local edits instant; edits use
-  version checks (last write wins with an automatic refresh on conflict).
+  Presence shows who is viewing; optimistic updates make local edits instant. Most edits are
+  last-write-wins, with every row carrying a `version` counter that records it changed and
+  realtime refreshes keeping the overwrite window a few seconds wide. Long-form rich text —
+  trip notes and journal entries — is the exception: those saves carry the version they loaded,
+  and a save against a version that has moved on is refused and reloaded rather than replacing
+  someone else's paragraphs.
 - Comments on places, days, lodgings and reservations; emoji reactions and 👍 voting on places.
 - Activity log ("Dana moved Louvre to Day 2") with undo for deletes and moves.
 
@@ -218,9 +222,12 @@ empty days.
 
 ## 17. Offline and notifications
 
-- App shell precached by the service worker; trip data cached network-first so recently opened
-  trips render offline; an offline banner appears and edits queue in an outbox that replays on
-  reconnect (server rejects stale versions gracefully).
+- App shell precached by the service worker; trip data cached network-first, so a trip you have
+  opened still renders with no connection. Offline the app is **read-only**: a banner says so and
+  the editing controls disable themselves, rather than accepting a change that cannot be sent.
+  There is no queue — a change is either sent or not made. (Writes are server actions, which
+  cannot be replayed across a deployment, so a queue would mean a separate idempotent mutation
+  endpoint; that is a deliberate future step, not something the app pretends to do today.)
 - Web push (when configured): invite accepted, comment mentions, "trip starts tomorrow", trip
   day reminders. iOS requires the PWA to be installed; the app shows a one-time coach-mark.
 

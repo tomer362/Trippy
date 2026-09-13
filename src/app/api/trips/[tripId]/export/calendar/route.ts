@@ -14,7 +14,8 @@ export async function GET(_req: Request, ctx: { params: Promise<{ tripId: string
   const { tripId } = await ctx.params;
   const session = await getSession();
   const access = await getTripAccess(tripId, session?.user.id ?? null);
-  if (!access?.canView) return new Response("Forbidden", { status: 403 });
+  // The feed carries confirmation numbers, so it is members-only like the expenses export.
+  if (!access?.isMember) return new Response("Forbidden", { status: 403 });
 
   const [days, reservations, lodgings] = await Promise.all([
     getItinerary(tripId, access.trip.defaultTravelMode),

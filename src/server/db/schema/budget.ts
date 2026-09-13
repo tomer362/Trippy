@@ -1,6 +1,7 @@
 import {
   date,
   doublePrecision,
+  foreignKey,
   index,
   integer,
   numeric,
@@ -9,6 +10,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  unique,
 } from "drizzle-orm/pg-core";
 import { id, timestamps } from "./_shared";
 import { user } from "./auth";
@@ -68,7 +70,17 @@ export const expenses = pgTable(
     version: integer("version").notNull().default(1),
     ...timestamps,
   },
-  (t) => [index("expenses_trip_idx").on(t.tripId), index("expenses_occurred_idx").on(t.occurredOn)],
+  (t) => [
+    index("expenses_trip_idx").on(t.tripId),
+    index("expenses_occurred_idx").on(t.occurredOn),
+    unique("expenses_id_trip_uk").on(t.id, t.tripId),
+    // An expense can only be attached to a place from its own trip.
+    foreignKey({
+      columns: [t.tripPlaceId, t.tripId],
+      foreignColumns: [tripPlaces.id, tripPlaces.tripId],
+      name: "expenses_place_in_trip_fk",
+    }),
+  ],
 );
 
 export const expenseShares = pgTable(

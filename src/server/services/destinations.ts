@@ -90,9 +90,12 @@ export async function searchDestinations(
   query: string,
   sessionToken?: string,
   limit = 8,
+  /** Only a signed-in caller may fall through to Google, which is billed per request. */
+  allowGoogleFallback = true,
 ): Promise<DestinationDTO[]> {
   const local = await searchLocal(query, limit);
-  if (local.length >= 4 || !features.mapsServer || query.trim().length < 3) return local;
+  if (local.length >= 4 || !allowGoogleFallback || !features.mapsServer || query.trim().length < 3)
+    return local;
   try {
     const remote = await autocomplete({
       query,

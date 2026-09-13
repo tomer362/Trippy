@@ -26,6 +26,7 @@ import { colorHex, dayColor } from "@/lib/colors";
 import { formatDayLabel } from "@/lib/days";
 import type { PacingHint } from "@/lib/travel-profile";
 import type { DestinationDTO, TravelMode } from "@/lib/types";
+import { useOnline } from "@/lib/use-online";
 import {
   addItineraryItem,
   moveItemToDay,
@@ -47,7 +48,7 @@ import { SuggestDayDialog } from "./suggest-day-dialog";
 export function ItineraryBoard({
   tripId,
   tripMode,
-  canEdit,
+  canEdit: canEditProp,
   days: initialDays,
   unscheduled,
   destinations,
@@ -73,6 +74,10 @@ export function ItineraryBoard({
   tripBBox: BBox | null;
   aiEnabled: boolean;
 }) {
+  // Every write here is a server action, which throws with no connection — so the
+  // controls go read-only rather than inviting an edit that cannot be sent.
+  const online = useOnline();
+  const canEdit = canEditProp && online;
   const router = useRouter();
   const [, start] = useTransition();
   const [days, setDays] = useState(initialDays);

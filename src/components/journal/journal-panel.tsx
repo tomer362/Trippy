@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Avatar, EmptyState } from "@/components/ui/misc";
 import { MARKER_COLORS } from "@/lib/colors";
 import { formatDayLabel } from "@/lib/days";
+import { useOnline } from "@/lib/use-online";
 import {
   addJournalEntry,
   removeJournalEntry,
@@ -26,7 +27,7 @@ const MOODS = ["🤩", "😊", "😌", "😮", "😴", "🥵", "🌧️"];
 
 export function JournalPanel({
   tripId,
-  canEdit,
+  canEdit: canEditProp,
   entries,
   blobEnabled,
   mapsApiKey,
@@ -41,6 +42,10 @@ export function JournalPanel({
   mapId: string | null;
   tripBBox: BBox | null;
 }) {
+  // Every write here is a server action, which throws with no connection — so the
+  // controls go read-only rather than inviting an edit that cannot be sent.
+  const online = useOnline();
+  const canEdit = canEditProp && online;
   const router = useRouter();
   const [, start] = useTransition();
   const refresh = useCallback(() => start(() => router.refresh()), [router]);
@@ -240,9 +245,12 @@ export function JournalPanel({
 
               <RichNotes
                 initialContent={entry.body}
+                initialVersion={entry.version}
                 canEdit={canEdit}
                 placeholder="What happened today?"
-                onSave={(body) => updateJournalEntry({ tripId, id: entry.id, body })}
+                onSave={(body, expectedVersion) =>
+                  updateJournalEntry({ tripId, id: entry.id, body, expectedVersion })
+                }
               />
 
               {entry.photos.length > 0 && (

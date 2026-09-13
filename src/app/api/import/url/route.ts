@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getSession } from "@/lib/auth";
 import { extractFromText, extractPlaceCandidates, fromGoogleMapsUrl } from "@/lib/extract-places";
+import { guard } from "@/server/rate-limit";
+import { safeFetch, UnsafeUrlError } from "@/server/services/safe-fetch";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -17,7 +19,10 @@ const MAX_BYTES = 2_000_000;
  * Nothing is saved here: extraction is a suggestion, not an import.
  */
 export async function POST(req: Request) {
-  if (!(await getSession())) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const limited = await guard(req, "import.url", session.user.id);
+  if (limited) return limited;
   const body = schema.safeParse(await req.json().catch(() => null));
   if (!body.success || (!body.data.url && !body.data.text)) {
     return NextResponse.json({ error: "Paste a link or some text" }, { status: 400 });
@@ -31,14 +36,12 @@ export async function POST(req: Request) {
   const direct = fromGoogleMapsUrl(url);
 
   try {
-    const res = await fetch(url, {
+    const res = await safeFetch(url, {
       headers: {
         "User-Agent": "Trippy/0.1 (trip planner; +https://github.com/tomer362/Trippy)",
         Accept: "text/html,application/xhtml+xml",
       },
-      redirect: "follow",
-      signal: AbortSignal.timeout(12_000),
-      cache: "no-store",
+      timeoutMs: 12_000,
     });
     if (!res.ok) {
       return NextResponse.json(
@@ -82,6 +85,12 @@ export async function POST(req: Request) {
       source: "url",
     });
   } catch (err) {
+    if (err instanceof UnsafeUrlError) {
+      return NextResponse.json(
+        { candidates: direct ? [direct] : [], error: err.message, source: "url" },
+        { status: direct ? 200 : 400 },
+      );
+    }
     console.error("import fetch failed", err);
     return NextResponse.json(
       {

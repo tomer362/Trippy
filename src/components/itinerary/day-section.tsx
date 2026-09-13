@@ -13,6 +13,7 @@ import {
   StickyNote,
   Wand2,
 } from "lucide-react";
+import { useEffect, useState } from "react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,7 +24,13 @@ import {
 } from "@/components/ui/dropdown";
 import { colorHex, dayColor } from "@/lib/colors";
 import { formatDayLabel } from "@/lib/days";
-import { directionsUrl, formatDistance, formatDuration } from "@/lib/geo";
+import {
+  appleDirectionsUrl,
+  directionsUrl,
+  formatDistance,
+  formatDuration,
+  prefersAppleMaps,
+} from "@/lib/geo";
 import { placeSequence } from "@/lib/itinerary";
 import type { TravelMode } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -74,16 +81,22 @@ export function DaySection({
   onHoverItem?: (id: string | null) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `day:${day.id}` });
+  // Read once on the client: iOS users expect their own map app.
+  const [appleMaps, setAppleMaps] = useState(false);
+  useEffect(() => setAppleMaps(prefersAppleMaps(navigator.userAgent)), []);
   const mode = day.travelMode ?? tripMode;
   const hex = colorHex(day.color ?? dayColor(day.dayIndex));
   const stops = placeSequence(day.items);
   const legs = day.legs;
   const totalDistance = legs.reduce((sum, l) => sum + (l.leg?.distanceM ?? 0), 0);
   const totalDuration = legs.reduce((sum, l) => sum + (l.leg?.durationS ?? 0), 0);
-  const dayDirections = directionsUrl(
-    stops.map((s) => ({ lat: s.place!.lat, lng: s.place!.lng, placeId: s.place!.googlePlaceId })),
-    mode,
-  );
+  const dayStops = stops.map((s) => ({
+    lat: s.place!.lat,
+    lng: s.place!.lng,
+    placeId: s.place!.googlePlaceId,
+  }));
+  const dayDirections = directionsUrl(dayStops, mode);
+  const dayDirectionsApple = appleDirectionsUrl(dayStops, mode);
   let stopNumber = 0;
 
   return (
@@ -182,6 +195,13 @@ export function DaySection({
                   <DropdownMenuItem asChild>
                     <a href={dayDirections} target="_blank" rel="noreferrer">
                       <Navigation /> Open day in Google Maps
+                    </a>
+                  </DropdownMenuItem>
+                )}
+                {dayDirectionsApple && appleMaps && (
+                  <DropdownMenuItem asChild>
+                    <a href={dayDirectionsApple} target="_blank" rel="noreferrer">
+                      <Navigation /> Open first leg in Apple Maps
                     </a>
                   </DropdownMenuItem>
                 )}

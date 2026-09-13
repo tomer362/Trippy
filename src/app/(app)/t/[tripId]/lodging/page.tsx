@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { LodgingPanel } from "@/components/lodging/lodging-panel";
 import { env, features } from "@/env";
 import { getSession } from "@/lib/auth";
@@ -13,7 +13,9 @@ export default async function LodgingPage({ params }: { params: Promise<{ tripId
   const { tripId } = await params;
   const session = await getSession();
   const access = await getTripAccess(tripId, session?.user.id ?? null);
-  if (!access?.canView) notFound();
+  if (!access) notFound();
+  // Booking references live here, so this page is members-only even when the trip is public.
+  if (!access.isMember) redirect(`/t/${tripId}`);
   const [lodgings, attachments, destinations] = await Promise.all([
     getLodgings(tripId),
     getAttachments(tripId),

@@ -4,6 +4,7 @@ import { ImagePlus, Loader2 } from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { parseExif } from "@/lib/exif";
 import { addJournalPhoto } from "@/server/actions/content";
 
 const MAX_EDGE = 1600;
@@ -54,6 +55,9 @@ export function PhotoUploader({
     setBusy(true);
     try {
       for (const file of Array.from(files)) {
+        // Read the metadata from the original: the resize below re-encodes the image and
+        // takes every EXIF tag with it, which is why the photo map was always empty.
+        const exif = parseExif(await file.arrayBuffer());
         const { blob, width, height, type } = await shrink(file);
         const name = file.name.replace(/\.[^.]+$/, "") + (type === "image/webp" ? ".webp" : "");
         const stored = await upload(`trips/${tripId}/journal/${name}`, blob, {
@@ -69,7 +73,12 @@ export function PhotoUploader({
           pathname: stored.pathname,
           width,
           height,
-          takenAt: file.lastModified ? new Date(file.lastModified).toISOString() : null,
+          // The camera's own timestamp when it has one; the file date is only a fallback,
+          // and it is wrong for anything copied between devices.
+          takenAt:
+            exif.takenAt ?? (file.lastModified ? new Date(file.lastModified).toISOString() : null),
+          lat: exif.lat,
+          lng: exif.lng,
         });
         if (!res.ok) throw new Error(res.error);
       }

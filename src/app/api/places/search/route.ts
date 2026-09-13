@@ -3,15 +3,19 @@ import { features } from "@/env";
 import { getSession } from "@/lib/auth";
 import { PLACE_CATEGORIES, PRICE_LEVEL_LABEL, prettyType } from "@/lib/place-categories";
 import type { BBox } from "@/server/db/schema/geo";
+import { guard } from "@/server/rate-limit";
 import { bboxToViewport, textSearch } from "@/server/services/google/places";
 
 export const dynamic = "force-dynamic";
 
 /** Text search used by the Explore tab and category chips, restricted to the trip's area. */
 export async function GET(req: Request) {
-  if (!(await getSession())) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   if (!features.mapsServer)
     return NextResponse.json({ results: [], error: "maps_not_configured" }, { status: 503 });
+  const limited = await guard(req, "places.search", session.user.id);
+  if (limited) return limited;
   const { searchParams } = new URL(req.url);
   const category = PLACE_CATEGORIES.find((c) => c.key === searchParams.get("category"));
   const near = searchParams.get("near") ?? "";

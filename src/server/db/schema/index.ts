@@ -4,6 +4,7 @@ export * from "./budget";
 export * from "./content";
 export * from "./discovery";
 export * from "./geo";
+export * from "./ops";
 export * from "./planning";
 export * from "./social";
 export * from "./trips";

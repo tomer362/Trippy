@@ -1,4 +1,4 @@
-import { CalendarDays, ExternalLink, MapPin, Star } from "lucide-react";
+import { BookOpen, CalendarDays, ExternalLink, MapPin, Star } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -9,7 +9,9 @@ import { colorHex, dayColor } from "@/lib/colors";
 import { APP_NAME } from "@/lib/constants";
 import { formatDateRange, formatDayLabel } from "@/lib/days";
 import { formatDistance, formatDuration } from "@/lib/geo";
+import { richTextToParagraphs } from "@/lib/rich-text";
 import { getTripAccess } from "@/server/authz";
+import { getJournal } from "@/server/queries/content";
 import { getItinerary } from "@/server/queries/itinerary";
 import { getTripPlaces } from "@/server/queries/places";
 import { findTripBySlug, getTripDestinations } from "@/server/queries/trips";
@@ -51,10 +53,12 @@ export default async function PublicTripPage({ params }: { params: Promise<{ slu
   const access = await getTripAccess(trip.id, session?.user.id ?? null);
   if (!access?.canView) notFound();
 
-  const [destinations, { lists }, days] = await Promise.all([
+  const [destinations, { lists }, days, journal] = await Promise.all([
     getTripDestinations(trip.id),
     getTripPlaces(trip.id),
     getItinerary(trip.id, trip.defaultTravelMode),
+    // A journal trip whose public page showed no journal was the whole point of publishing it.
+    trip.kind === "journal" ? getJournal(trip.id) : Promise.resolve([]),
   ]);
   const view = unionBBox(
     destinations.map((d) => ({ lat: d.lat, lng: d.lng, bbox: d.bbox, zoom: d.zoom })),
@@ -223,6 +227,58 @@ export default async function PublicTripPage({ params }: { params: Promise<{ slu
                     </ul>
                   </div>
                 ))}
+            </div>
+          </section>
+        )}
+
+        {journal.length > 0 && (
+          <section className="mb-10">
+            <h2 className="mb-3 flex items-center gap-2 text-xl font-bold">
+              <BookOpen className="size-5" /> Journal
+            </h2>
+            <div className="space-y-6">
+              {journal.map((entry) => {
+                const paragraphs = richTextToParagraphs(entry.body);
+                return (
+                  <article key={entry.id}>
+                    <h3 className="font-bold">
+                      {entry.title ??
+                        (entry.date
+                          ? formatDayLabel(
+                              { date: entry.date, dayIndex: entry.dayIndex ?? 0 },
+                              { long: true },
+                            )
+                          : "Entry")}
+                    </h3>
+                    {entry.mood && <p className="text-sm text-muted-foreground">{entry.mood}</p>}
+                    {paragraphs.map((text) => (
+                      <p key={text} className="mt-2 text-sm">
+                        {text}
+                      </p>
+                    ))}
+                    {entry.photos.length > 0 && (
+                      <ul className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                        {entry.photos.map((photo) => (
+                          <li key={photo.id}>
+                            {/* biome-ignore lint/performance/noImgElement: served straight from the blob CDN, so it spends none of Hobby's image transformations */}
+                            <img
+                              src={photo.url}
+                              alt={photo.caption ?? ""}
+                              width={photo.width ?? undefined}
+                              height={photo.height ?? undefined}
+                              loading="lazy"
+                              className="aspect-square w-full rounded-2xl object-cover"
+                            />
+                            {photo.caption && (
+                              <p className="mt-1 text-xs text-muted-foreground">{photo.caption}</p>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </article>
+                );
+              })}
             </div>
           </section>
         )}

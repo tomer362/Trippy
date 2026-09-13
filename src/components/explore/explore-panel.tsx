@@ -20,6 +20,7 @@ import { addPlaceToTrip } from "@/server/actions/places";
 import type { BBox } from "@/server/db/schema/geo";
 import type { GuideCardDTO } from "@/server/queries/discovery";
 import type { FriendPlace, LovedPlace } from "@/server/services/travel-profile";
+import { CopyPastDay } from "./copy-past-day";
 
 type SearchResult = {
   placeId: string;
@@ -51,6 +52,7 @@ export function ExplorePanel({
   lovedPlaces,
   friendPlaces,
   pastDays,
+  tripDays,
   profile,
   mapsApiKey,
   mapId,
@@ -69,6 +71,8 @@ export function ExplorePanel({
     title: string | null;
     stops: number;
   }>;
+  /** This trip's own days, so a past day has somewhere to be copied to. */
+  tripDays: Array<{ id: string; dayIndex: number; date: string | null; title: string | null }>;
   profile: TravelProfile;
   mapsApiKey: string | null;
   mapId: string | null;
@@ -276,12 +280,25 @@ export function ExplorePanel({
           <h3 className="mb-2 font-bold">Days from your past trips here</h3>
           <ul className="space-y-1">
             {pastDays.map((d) => (
-              <li key={d.dayId} className="rounded-2xl border border-border px-3 py-2 text-sm">
-                <span className="font-medium">{d.title ?? `Day ${d.dayIndex + 1}`}</span>
-                <span className="text-muted-foreground">
-                  {" "}
-                  · {d.tripName} · {d.stops} stops
+              <li
+                key={d.dayId}
+                className="flex flex-wrap items-center gap-2 rounded-2xl border border-border px-3 py-2 text-sm"
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="font-medium">{d.title ?? `Day ${d.dayIndex + 1}`}</span>
+                  <span className="text-muted-foreground">
+                    {" "}
+                    · {d.tripName} · {d.stops} stops
+                  </span>
                 </span>
+                {canEdit && tripDays.length > 0 && (
+                  <CopyPastDay
+                    tripId={tripId}
+                    sourceDayId={d.dayId}
+                    days={tripDays}
+                    onDone={refresh}
+                  />
+                )}
               </li>
             ))}
           </ul>

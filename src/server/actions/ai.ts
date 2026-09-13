@@ -9,6 +9,7 @@ import { requireTripAccess } from "@/server/authz";
 import { db } from "@/server/db";
 import { itineraryDays, itineraryItems, places, tripPlaces, trips } from "@/server/db/schema";
 import { getTripDestinations } from "@/server/queries/trips";
+import { assertInTrip } from "@/server/scope";
 import { AiUnavailableError, suggestDayPlan } from "@/server/services/ai";
 import { unionBBox } from "@/server/services/destinations";
 import { bboxToViewport, textSearch } from "@/server/services/google/places";
@@ -92,6 +93,7 @@ export const suggestDay = action(
   }),
   async ({ tripId, dayId, request }, userId): Promise<DaySuggestion> => {
     await requireTripAccess(tripId, userId, "edit");
+    await assertInTrip(tripId, { day: dayId });
     if (!features.ai) throw new AiUnavailableError();
     const ctx = await dayContextFor(tripId, dayId, userId, request ?? null);
     return suggestDayPlan(ctx);
@@ -125,12 +127,7 @@ export const addSuggestedStops = action(
   }),
   async ({ tripId, dayId, stops }, userId): Promise<AddedSuggestions> => {
     await requireTripAccess(tripId, userId, "edit");
-    const [day] = await db
-      .select({ id: itineraryDays.id })
-      .from(itineraryDays)
-      .where(and(eq(itineraryDays.id, dayId), eq(itineraryDays.tripId, tripId)))
-      .limit(1);
-    if (!day) throw new Error("Day not found");
+    await assertInTrip(tripId, { day: dayId });
 
     const destinations = await getTripDestinations(tripId);
     const view = unionBBox(

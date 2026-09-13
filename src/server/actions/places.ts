@@ -7,13 +7,13 @@ import { requireTripAccess } from "@/server/authz";
 import { db } from "@/server/db";
 import {
   activities,
-  itineraryDays,
   itineraryItems,
   places,
   tripLists,
   tripPlaces,
   trips,
 } from "@/server/db/schema";
+import { assertInTrip } from "@/server/scope";
 import { createManualPlace, ensurePlace } from "@/server/services/places";
 import { publishTripChange } from "@/server/services/realtime";
 import { attachPlaceToDay, saveTripPlace } from "@/server/services/trip-places";
@@ -53,14 +53,18 @@ const addPlaceSchema = z
     listId: z.string().nullable().optional(),
     dayId: z.string().optional(),
     notes: z.string().max(2000).optional(),
+    // The autocomplete session this pick came from, so Google bills the whole search as one
+    // Details call instead of one per keystroke.
+    sessionToken: z.string().max(64).optional(),
   })
   .refine((v) => Boolean(v.googlePlaceId || v.manual), { message: "A place is required" });
 
 /** Saves a place to a trip, optionally straight onto an itinerary day. */
 export const addPlaceToTrip = action(addPlaceSchema, async (input, userId) => {
   await requireTripAccess(input.tripId, userId, "edit");
+  await assertInTrip(input.tripId, { list: input.listId, day: input.dayId });
   const place = input.googlePlaceId
-    ? await ensurePlace(input.googlePlaceId)
+    ? await ensurePlace(input.googlePlaceId, input.sessionToken)
     : await createManualPlace(input.manual!);
   const saved = await saveTripPlace({
     tripId: input.tripId,
@@ -112,6 +116,7 @@ export const moveTripPlaces = action(
   moveSchema,
   async ({ tripId, ids, targetListId, targetDayId, mode }, userId) => {
     await requireTripAccess(tripId, userId, "edit");
+    await assertInTrip(tripId, { list: targetListId, day: targetDayId });
     const rows = await db
       .select()
       .from(tripPlaces)
@@ -367,6 +372,7 @@ export const addManualPlace = action(
   }),
   async ({ tripId, name, lat, lng, address, listId }, userId) => {
     await requireTripAccess(tripId, userId, "edit");
+    await assertInTrip(tripId, { list: listId });
     const place = await db
       .insert(places)
       .values({
@@ -399,12 +405,7 @@ export const schedulePlaceOnDay = action(
   z.object({ tripId: z.string(), tripPlaceId: z.string(), dayId: z.string() }),
   async ({ tripId, tripPlaceId, dayId }, userId) => {
     await requireTripAccess(tripId, userId, "edit");
-    const [day] = await db
-      .select()
-      .from(itineraryDays)
-      .where(and(eq(itineraryDays.id, dayId), eq(itineraryDays.tripId, tripId)))
-      .limit(1);
-    if (!day) throw new Error("Day not found");
+    await assertInTrip(tripId, { day: dayId, tripPlace: tripPlaceId });
     await attachPlaceToDay({ tripId, dayId, tripPlaceId });
     await touchTrip(tripId);
     await publishTripChange(tripId, { entity: "itinerary", actorId: userId });

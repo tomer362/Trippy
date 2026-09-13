@@ -117,8 +117,8 @@ export function LodgingForm({
             value={draft.name}
             bbox={bbox}
             onTypeName={(name) => setDraft((d) => ({ ...d, name, googlePlaceId: undefined }))}
-            onPick={({ googlePlaceId, name, address }) =>
-              setDraft((d) => ({ ...d, googlePlaceId, name, address }))
+            onPick={({ googlePlaceId, name, address, sessionToken }) =>
+              setDraft((d) => ({ ...d, googlePlaceId, name, address, sessionToken }))
             }
           />
           <div className="grid grid-cols-2 gap-3">

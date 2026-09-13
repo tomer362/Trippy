@@ -2,15 +2,19 @@ import { NextResponse } from "next/server";
 import { features } from "@/env";
 import { getSession } from "@/lib/auth";
 import type { BBox } from "@/server/db/schema/geo";
+import { guard } from "@/server/rate-limit";
 import { autocomplete, bboxToViewport } from "@/server/services/google/places";
 
 export const dynamic = "force-dynamic";
 
 /** Proxies Places Autocomplete so the server key never reaches the browser. */
 export async function GET(req: Request) {
-  if (!(await getSession())) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   if (!features.mapsServer)
     return NextResponse.json({ suggestions: [], error: "maps_not_configured" }, { status: 503 });
+  const limited = await guard(req, "places.autocomplete", session.user.id);
+  if (limited) return limited;
   const { searchParams } = new URL(req.url);
   const query = (searchParams.get("q") ?? "").trim().slice(0, 120);
   if (query.length < 2) return NextResponse.json({ suggestions: [] });

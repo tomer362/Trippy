@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  appleDirectionsUrl,
   boundsOf,
   directionsUrl,
   formatDistance,
   formatDuration,
   haversineMeters,
   padBBox,
+  prefersAppleMaps,
 } from "./geo";
 
 describe("haversineMeters", () => {
@@ -74,5 +76,41 @@ describe("directionsUrl", () => {
     expect(url).toContain("waypoints=3%2C4");
     expect(url).toContain("origin_place_id=A");
     expect(url).toContain("destination_place_id=B");
+  });
+});
+
+describe("appleDirectionsUrl", () => {
+  const paris = { lat: 48.8584, lng: 2.2945 };
+  const louvre = { lat: 48.8606, lng: 2.3376 };
+
+  it("builds a maps.apple.com link with the travel mode", () => {
+    const url = appleDirectionsUrl([paris, louvre], "walk")!;
+    expect(url).toContain("https://maps.apple.com/?");
+    expect(url).toContain("saddr=48.8584%2C2.2945");
+    expect(url).toContain("daddr=48.8606%2C2.3376");
+    expect(url).toContain("dirflg=w");
+  });
+
+  it("maps drive and transit to Apple's own flags", () => {
+    expect(appleDirectionsUrl([paris, louvre], "drive")).toContain("dirflg=d");
+    expect(appleDirectionsUrl([paris, louvre], "transit")).toContain("dirflg=r");
+    // Apple has no cycling directions, so it falls back to driving rather than breaking.
+    expect(appleDirectionsUrl([paris, louvre], "bicycle")).toContain("dirflg=d");
+  });
+
+  it("needs two stops", () => {
+    expect(appleDirectionsUrl([paris], "drive")).toBeNull();
+  });
+});
+
+describe("prefersAppleMaps", () => {
+  it("recognises iPhone and iPad", () => {
+    expect(prefersAppleMaps("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)")).toBe(true);
+    expect(prefersAppleMaps("Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X)")).toBe(true);
+  });
+
+  it("leaves Android and desktop on Google Maps", () => {
+    expect(prefersAppleMaps("Mozilla/5.0 (Linux; Android 14)")).toBe(false);
+    expect(prefersAppleMaps("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")).toBe(false);
   });
 });

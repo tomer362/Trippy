@@ -1,6 +1,7 @@
 import {
   boolean,
   date,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -10,6 +11,7 @@ import {
   text,
   time,
   timestamp,
+  unique,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { id, timestamps } from "./_shared";
@@ -35,7 +37,10 @@ export const tripLists = pgTable(
     version: integer("version").notNull().default(1),
     ...timestamps,
   },
-  (t) => [index("trip_lists_trip_idx").on(t.tripId)],
+  (t) => [
+    index("trip_lists_trip_idx").on(t.tripId),
+    unique("trip_lists_id_trip_uk").on(t.id, t.tripId),
+  ],
 );
 
 export const tripPlaces = pgTable(
@@ -64,6 +69,14 @@ export const tripPlaces = pgTable(
     index("trip_places_trip_idx").on(t.tripId),
     index("trip_places_list_idx").on(t.listId),
     index("trip_places_place_idx").on(t.placeId),
+    unique("trip_places_id_trip_uk").on(t.id, t.tripId),
+    // A place can only be filed in a list belonging to the same trip. The plain list_id FK
+    // above still owns the set-null behaviour; this one only constrains the pairing.
+    foreignKey({
+      columns: [t.listId, t.tripId],
+      foreignColumns: [tripLists.id, tripLists.tripId],
+      name: "trip_places_list_in_trip_fk",
+    }),
   ],
 );
 
@@ -86,7 +99,10 @@ export const itineraryDays = pgTable(
     version: integer("version").notNull().default(1),
     ...timestamps,
   },
-  (t) => [uniqueIndex("itinerary_days_trip_day_idx").on(t.tripId, t.dayIndex)],
+  (t) => [
+    uniqueIndex("itinerary_days_trip_day_idx").on(t.tripId, t.dayIndex),
+    unique("itinerary_days_id_trip_uk").on(t.id, t.tripId),
+  ],
 );
 
 export const itemKind = pgEnum("item_kind", [
@@ -126,6 +142,18 @@ export const itineraryItems = pgTable(
     index("itinerary_items_day_idx").on(t.dayId),
     index("itinerary_items_trip_idx").on(t.tripId),
     index("itinerary_items_trip_place_idx").on(t.tripPlaceId),
+    // An item's day and place must belong to the item's own trip. Without these a forged
+    // dayId lands a row in one trip that points at another's day.
+    foreignKey({
+      columns: [t.dayId, t.tripId],
+      foreignColumns: [itineraryDays.id, itineraryDays.tripId],
+      name: "itinerary_items_day_in_trip_fk",
+    }),
+    foreignKey({
+      columns: [t.tripPlaceId, t.tripId],
+      foreignColumns: [tripPlaces.id, tripPlaces.tripId],
+      name: "itinerary_items_place_in_trip_fk",
+    }),
   ],
 );
 

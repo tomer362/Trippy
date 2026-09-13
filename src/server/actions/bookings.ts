@@ -5,9 +5,15 @@ import { z } from "zod";
 import { requireTripAccess } from "@/server/authz";
 import { db } from "@/server/db";
 import { activities, attachments, lodgings, reservations, trips } from "@/server/db/schema";
+import { assertInTrip } from "@/server/scope";
 import { ensurePlace } from "@/server/services/places";
 import { publishTripChange } from "@/server/services/realtime";
-import { deleteStored, tripIdFromPath, UPLOAD_LIMITS } from "@/server/services/storage";
+import {
+  deleteStored,
+  isStoredBlobUrl,
+  tripIdFromPath,
+  UPLOAD_LIMITS,
+} from "@/server/services/storage";
 import { action } from "./_helpers";
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date");
@@ -28,6 +34,7 @@ async function touch(tripId: string) {
 const lodgingFields = z.object({
   tripId: z.string(),
   googlePlaceId: z.string().optional(),
+  sessionToken: z.string().max(64).optional(),
   name: z.string().trim().min(1, "Name the place you're staying").max(200),
   address: z.string().max(300).nullable().optional(),
   lat: z.number().nullable().optional(),
@@ -50,9 +57,9 @@ const lodgingSchema = lodgingFields.refine((v) => v.checkOut > v.checkIn, {
 
 export const addLodging = action(
   lodgingSchema,
-  async ({ tripId, googlePlaceId, ...input }, userId) => {
+  async ({ tripId, googlePlaceId, sessionToken, ...input }, userId) => {
     await requireTripAccess(tripId, userId, "edit");
-    const place = googlePlaceId ? await ensurePlace(googlePlaceId) : null;
+    const place = googlePlaceId ? await ensurePlace(googlePlaceId, sessionToken) : null;
     const [created] = await db
       .insert(lodgings)
       .values({
@@ -219,16 +226,37 @@ const registerSchema = z.object({
   entityType: z.enum(["trip", "lodging", "reservation", "expense", "journal"]),
   entityId: z.string(),
   kind: z.enum(["attachment", "journal", "cover"]),
-  url: z.string().url(),
+  // Rejected here too, so a row that could later be redirected to is never created.
+  url: z.string().url().refine(isStoredBlobUrl, "That file is not in our storage"),
   pathname: z.string().min(1),
   filename: z.string().min(1).max(200),
   mime: z.string().min(1).max(120),
   size: z.number().int().min(0),
 });
 
+/** Attachments hang off several kinds of row, each of which must be this trip's. */
+async function assertAttachmentTarget(
+  tripId: string,
+  entityType: "trip" | "lodging" | "reservation" | "expense" | "journal",
+  entityId: string,
+) {
+  if (entityType === "trip") {
+    if (entityId !== tripId) throw new Error("That file does not belong to this trip");
+    return;
+  }
+  const kind = {
+    lodging: "lodging",
+    reservation: "reservation",
+    expense: "expense",
+    journal: "journalEntry",
+  } as const;
+  await assertInTrip(tripId, { [kind[entityType]]: entityId });
+}
+
 /** Records a finished browser upload after re-checking that it belongs to this trip. */
 export const registerAttachment = action(registerSchema, async (input, userId) => {
   await requireTripAccess(input.tripId, userId, "edit");
+  await assertAttachmentTarget(input.tripId, input.entityType, input.entityId);
   if (tripIdFromPath(input.pathname) !== input.tripId)
     throw new Error("That file does not belong to this trip");
   const limits = UPLOAD_LIMITS[input.kind];

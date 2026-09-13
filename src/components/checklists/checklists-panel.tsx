@@ -15,6 +15,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/ui/misc";
 import { BUILT_IN_TEMPLATES } from "@/lib/checklist-templates";
+import { useOnline } from "@/lib/use-online";
 import { cn } from "@/lib/utils";
 import {
   addChecklistFromTemplate,
@@ -31,7 +32,7 @@ import type { TripMemberInfo } from "@/server/queries/trips";
 
 export function ChecklistsPanel({
   tripId,
-  canEdit,
+  canEdit: canEditProp,
   checklists,
   members,
   savedTemplates,
@@ -42,6 +43,10 @@ export function ChecklistsPanel({
   members: TripMemberInfo[];
   savedTemplates: Array<{ id: string; name: string; count: number }>;
 }) {
+  // Every write here is a server action, which throws with no connection — so the
+  // controls go read-only rather than inviting an edit that cannot be sent.
+  const online = useOnline();
+  const canEdit = canEditProp && online;
   const router = useRouter();
   const [, start] = useTransition();
   const refresh = useCallback(() => start(() => router.refresh()), [router]);

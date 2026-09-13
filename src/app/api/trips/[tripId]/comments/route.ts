@@ -35,7 +35,13 @@ export async function GET(req: Request, ctx: { params: Promise<{ tripId: string 
       .select({ r: reactions, name: user.name })
       .from(reactions)
       .innerJoin(user, eq(user.id, reactions.userId))
-      .where(and(eq(reactions.entityType, entityType), eq(reactions.entityId, entityId))),
+      .where(
+        and(
+          eq(reactions.tripId, tripId),
+          eq(reactions.entityType, entityType),
+          eq(reactions.entityId, entityId),
+        ),
+      ),
   ]);
 
   return NextResponse.json({

@@ -1,5 +1,5 @@
 "use server";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, lt, or, sql } from "drizzle-orm";
 import { customAlphabet } from "nanoid";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -93,8 +93,18 @@ export const acceptInvite = action(
     if (invite.revokedAt) throw new Error("That invite has been revoked");
     if (invite.expiresAt && invite.expiresAt.getTime() < Date.now())
       throw new Error("That invite has expired");
-    if (invite.maxUses !== null && invite.uses >= invite.maxUses)
-      throw new Error("That invite has been used up");
+
+    // An emailed invite names its recipient, so a forwarded link must not admit whoever opens
+    // it. A link-only invite (no email) stays bearer-based on purpose.
+    if (invite.email) {
+      const [me] = await db
+        .select({ email: user.email })
+        .from(user)
+        .where(eq(user.id, userId))
+        .limit(1);
+      if (me?.email?.toLowerCase() !== invite.email.toLowerCase())
+        throw new Error("That invite was sent to a different email address");
+    }
 
     const [existing] = await db
       .select()
@@ -102,8 +112,27 @@ export const acceptInvite = action(
       .where(and(eq(tripMembers.tripId, invite.tripId), eq(tripMembers.userId, userId)))
       .limit(1);
 
+    // Claim a use in one conditional statement — reading the count and incrementing it
+    // separately lets simultaneous redemptions all slip past a maxUses of 1 — and put the
+    // membership write in the same batch, so a failed join never burns a use.
+    const claim = db
+      .update(tripInvites)
+      .set({ uses: sql`${tripInvites.uses} + 1`, acceptedBy: userId })
+      .where(
+        and(
+          eq(tripInvites.id, invite.id),
+          isNull(tripInvites.revokedAt),
+          or(isNull(tripInvites.maxUses), lt(tripInvites.uses, tripInvites.maxUses)),
+        ),
+      )
+      .returning({ id: tripInvites.id });
+
     if (!existing) {
-      await db.insert(tripMembers).values({ tripId: invite.tripId, userId, role: invite.role });
+      const [claimed] = await db.batch([
+        claim,
+        db.insert(tripMembers).values({ tripId: invite.tripId, userId, role: invite.role }),
+      ]);
+      if (claimed.length === 0) throw new Error("That invite has been used up");
       const [joiner] = await db
         .select({ name: user.name })
         .from(user)
@@ -135,16 +164,19 @@ export const acceptInvite = action(
         });
       }
     } else if (existing.role === "viewer" && invite.role === "editor") {
-      await db
-        .update(tripMembers)
-        .set({ role: "editor" })
-        .where(and(eq(tripMembers.tripId, invite.tripId), eq(tripMembers.userId, userId)));
+      const [claimed] = await db.batch([
+        claim,
+        db
+          .update(tripMembers)
+          .set({ role: "editor" })
+          .where(and(eq(tripMembers.tripId, invite.tripId), eq(tripMembers.userId, userId))),
+      ]);
+      if (claimed.length === 0) throw new Error("That invite has been used up");
+    } else {
+      // Already a member at this role or better: nothing to change, and no use to spend.
+      return { tripId: invite.tripId };
     }
 
-    await db
-      .update(tripInvites)
-      .set({ uses: sql`${tripInvites.uses} + 1`, acceptedBy: userId })
-      .where(eq(tripInvites.id, invite.id));
     await publishTripChange(invite.tripId, { entity: "trip", actorId: userId });
     revalidatePath("/trips");
     return { tripId: invite.tripId };
@@ -154,8 +186,10 @@ export const acceptInvite = action(
 export const setMemberRole = action(
   z.object({ tripId: z.string(), memberId: z.string(), role: roleSchema }),
   async ({ tripId, memberId, role }, userId) => {
-    await requireTripAccess(tripId, userId, "manage");
+    const access = await requireTripAccess(tripId, userId, "manage");
     if (memberId === userId) throw new Error("You cannot change your own role");
+    if (memberId === access.trip.ownerId)
+      throw new Error("The owner's role cannot be changed. Transfer ownership first.");
     await db
       .update(tripMembers)
       .set({ role })
@@ -192,21 +226,25 @@ export const transferOwnership = action(
       .where(and(eq(tripMembers.tripId, tripId), eq(tripMembers.userId, memberId)))
       .limit(1);
     if (!target) throw new Error("That person is not on this trip");
-    await db.update(trips).set({ ownerId: memberId }).where(eq(trips.id, tripId));
-    await db
-      .update(tripMembers)
-      .set({ role: "owner" })
-      .where(and(eq(tripMembers.tripId, tripId), eq(tripMembers.userId, memberId)));
-    await db
-      .update(tripMembers)
-      .set({ role: "editor" })
-      .where(and(eq(tripMembers.tripId, tripId), eq(tripMembers.userId, userId)));
-    await db.insert(activities).values({
-      tripId,
-      actorId: userId,
-      type: "trip.ownership",
-      summary: "transferred ownership",
-    });
+    // All or nothing. Landing between the trip's owner_id and the two role rows leaves a trip
+    // where getTripAccess backfills nobody as owner, so no one can manage it any more.
+    await db.batch([
+      db.update(trips).set({ ownerId: memberId }).where(eq(trips.id, tripId)),
+      db
+        .update(tripMembers)
+        .set({ role: "owner" })
+        .where(and(eq(tripMembers.tripId, tripId), eq(tripMembers.userId, memberId))),
+      db
+        .update(tripMembers)
+        .set({ role: "editor" })
+        .where(and(eq(tripMembers.tripId, tripId), eq(tripMembers.userId, userId))),
+      db.insert(activities).values({
+        tripId,
+        actorId: userId,
+        type: "trip.ownership",
+        summary: "transferred ownership",
+      }),
+    ]);
     revalidatePath(`/t/${tripId}/settings`);
     return null;
   },

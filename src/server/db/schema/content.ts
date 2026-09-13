@@ -2,6 +2,7 @@ import {
   boolean,
   date,
   doublePrecision,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -10,6 +11,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  unique,
 } from "drizzle-orm/pg-core";
 import { id, timestamps } from "./_shared";
 import { user } from "./auth";
@@ -40,7 +42,10 @@ export const checklists = pgTable(
     version: integer("version").notNull().default(1),
     ...timestamps,
   },
-  (t) => [index("checklists_trip_idx").on(t.tripId)],
+  (t) => [
+    index("checklists_trip_idx").on(t.tripId),
+    unique("checklists_id_trip_uk").on(t.id, t.tripId),
+  ],
 );
 
 export const checklistItems = pgTable(
@@ -83,6 +88,11 @@ export const comments = pgTable(
 export const reactions = pgTable(
   "reactions",
   {
+    // Reactions hang off a polymorphic entity, so without the trip they belong to there is
+    // nothing to check access against and one trip's endpoint can reach another's rows.
+    tripId: text("trip_id")
+      .notNull()
+      .references(() => trips.id, { onDelete: "cascade" }),
     entityType: text("entity_type").notNull(),
     entityId: text("entity_id").notNull(),
     userId: text("user_id")
@@ -91,7 +101,7 @@ export const reactions = pgTable(
     emoji: text("emoji").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [primaryKey({ columns: [t.entityType, t.entityId, t.userId, t.emoji] })],
+  (t) => [primaryKey({ columns: [t.tripId, t.entityType, t.entityId, t.userId, t.emoji] })],
 );
 
 export const journalEntries = pgTable(
@@ -113,7 +123,10 @@ export const journalEntries = pgTable(
     version: integer("version").notNull().default(1),
     ...timestamps,
   },
-  (t) => [index("journal_entries_trip_idx").on(t.tripId)],
+  (t) => [
+    index("journal_entries_trip_idx").on(t.tripId),
+    unique("journal_entries_id_trip_uk").on(t.id, t.tripId),
+  ],
 );
 
 export const journalPhotos = pgTable(
@@ -141,6 +154,12 @@ export const journalPhotos = pgTable(
   (t) => [
     index("journal_photos_entry_idx").on(t.entryId),
     index("journal_photos_trip_idx").on(t.tripId),
+    // A photo's entry must be in the photo's own trip.
+    foreignKey({
+      columns: [t.entryId, t.tripId],
+      foreignColumns: [journalEntries.id, journalEntries.tripId],
+      name: "journal_photos_entry_in_trip_fk",
+    }),
   ],
 );
 

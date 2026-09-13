@@ -3,9 +3,30 @@ import type { z } from "zod";
 import { requireUser } from "@/lib/auth";
 import { AccessDeniedError } from "@/server/authz";
 
+/** Postgres reports a foreign-key violation as SQLSTATE 23503, wrapped by the driver. */
+function isForeignKeyViolation(err: unknown): boolean {
+  for (let e: unknown = err, depth = 0; e && depth < 4; depth++) {
+    if (typeof e === "object" && "code" in e && (e as { code?: unknown }).code === "23503")
+      return true;
+    e = typeof e === "object" && "cause" in e ? (e as { cause?: unknown }).cause : null;
+  }
+  return false;
+}
+
+/**
+ * Raised when a write carried the version the caller had loaded and the row has moved on
+ * since. The caller is expected to reload rather than overwrite.
+ */
+export class ConflictError extends Error {
+  constructor(message = "Someone else changed this while you were editing") {
+    super(message);
+    this.name = "ConflictError";
+  }
+}
+
 export type ActionResult<T = undefined> =
   | { ok: true; data: T }
-  | { ok: false; error: string; fieldErrors?: Record<string, string[]> };
+  | { ok: false; error: string; conflict?: true; fieldErrors?: Record<string, string[]> };
 
 /** Wraps a server action body with auth, validation and uniform error handling. */
 export function action<S extends z.ZodType, T>(
@@ -28,6 +49,11 @@ export function action<S extends z.ZodType, T>(
       return { ok: true, data };
     } catch (err) {
       if (err instanceof AccessDeniedError) return { ok: false, error: err.message };
+      if (err instanceof ConflictError) return { ok: false, error: err.message, conflict: true };
+      // A composite (id, trip_id) foreign key rejected the write, which means an id in the
+      // request belongs to a different trip. Report it as the mistake it is, not as a crash.
+      if (isForeignKeyViolation(err))
+        return { ok: false, error: "That doesn't belong to this trip" };
       console.error("action failed", err);
       return { ok: false, error: err instanceof Error ? err.message : "Something went wrong" };
     }

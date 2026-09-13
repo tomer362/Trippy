@@ -6,8 +6,16 @@ import { optimizeOrder, tourCost } from "@/lib/optimize";
 import type { TravelMode } from "@/lib/types";
 import { requireTripAccess } from "@/server/authz";
 import { db } from "@/server/db";
-import { activities, itineraryDays, itineraryItems, tripPlaces, trips } from "@/server/db/schema";
+import {
+  activities,
+  itineraryDays,
+  itineraryItems,
+  places,
+  tripPlaces,
+  trips,
+} from "@/server/db/schema";
 import { getItinerary, placeSequence } from "@/server/queries/itinerary";
+import { assertInTrip } from "@/server/scope";
 import { publishTripChange } from "@/server/services/realtime";
 import { buildDayMatrix, ensureSequenceLegs, MAX_OPTIMIZE_STOPS } from "@/server/services/routing";
 import { action } from "./_helpers";
@@ -38,6 +46,8 @@ export const updateDay = action(
   }),
   async ({ tripId, dayId, ...patch }, userId) => {
     await requireTripAccess(tripId, userId, "edit");
+    // startPlaceId/endPlaceId point at the shared places table, which is not trip-scoped.
+    await assertInTrip(tripId, { day: dayId });
     await db
       .update(itineraryDays)
       .set({ ...patch, version: sql`${itineraryDays.version} + 1` })
@@ -60,10 +70,11 @@ const addItemSchema = z.object({
 
 export const addItineraryItem = action(addItemSchema, async (input, userId) => {
   await requireTripAccess(input.tripId, userId, "edit");
+  await assertInTrip(input.tripId, { day: input.dayId, tripPlace: input.tripPlaceId });
   const [row] = await db
     .select({ max: max(itineraryItems.position) })
     .from(itineraryItems)
-    .where(eq(itineraryItems.dayId, input.dayId));
+    .where(and(eq(itineraryItems.dayId, input.dayId), eq(itineraryItems.tripId, input.tripId)));
   const [created] = await db
     .insert(itineraryItems)
     .values({
@@ -123,6 +134,7 @@ export const reorderDayItems = action(
   z.object({ tripId: z.string(), dayId: z.string(), orderedIds: z.array(z.string()).max(200) }),
   async ({ tripId, dayId, orderedIds }, userId) => {
     await requireTripAccess(tripId, userId, "edit");
+    await assertInTrip(tripId, { day: dayId, item: orderedIds });
     for (const [position, id] of orderedIds.entries()) {
       await db
         .update(itineraryItems)
@@ -145,21 +157,29 @@ export const moveItemToDay = action(
   }),
   async ({ tripId, id, dayId, index }, userId) => {
     await requireTripAccess(tripId, userId, "edit");
+    await assertInTrip(tripId, { day: dayId, item: id });
     const siblings = await db
       .select()
       .from(itineraryItems)
-      .where(eq(itineraryItems.dayId, dayId))
+      .where(and(eq(itineraryItems.dayId, dayId), eq(itineraryItems.tripId, tripId)))
       .orderBy(itineraryItems.position);
     const at = Math.min(index ?? siblings.length, siblings.length);
     const ordered = [...siblings.map((s) => s.id).filter((s) => s !== id)];
     ordered.splice(at, 0, id);
-    await db
-      .update(itineraryItems)
-      .set({ dayId })
-      .where(and(eq(itineraryItems.id, id), eq(itineraryItems.tripId, tripId)));
-    for (const [position, itemId] of ordered.entries()) {
-      await db.update(itineraryItems).set({ position }).where(eq(itineraryItems.id, itemId));
-    }
+    // One batch, and every write is pinned to this trip: the ordering pass used to key on the
+    // item id alone, which let a foreign dayId reshuffle another trip's day.
+    await db.batch([
+      db
+        .update(itineraryItems)
+        .set({ dayId })
+        .where(and(eq(itineraryItems.id, id), eq(itineraryItems.tripId, tripId))),
+      ...ordered.map((itemId, position) =>
+        db
+          .update(itineraryItems)
+          .set({ position })
+          .where(and(eq(itineraryItems.id, itemId), eq(itineraryItems.tripId, tripId))),
+      ),
+    ]);
     await touch(tripId);
     await publishTripChange(tripId, { entity: "itinerary", actorId: userId });
     return null;
@@ -175,6 +195,7 @@ export const addPlacesToDay = action(
   }),
   async ({ tripId, dayId, tripPlaceIds }, userId) => {
     await requireTripAccess(tripId, userId, "edit");
+    await assertInTrip(tripId, { day: dayId });
     const valid = await db
       .select({ id: tripPlaces.id })
       .from(tripPlaces)
@@ -182,7 +203,7 @@ export const addPlacesToDay = action(
     const [row] = await db
       .select({ max: max(itineraryItems.position) })
       .from(itineraryItems)
-      .where(eq(itineraryItems.dayId, dayId));
+      .where(and(eq(itineraryItems.dayId, dayId), eq(itineraryItems.tripId, tripId)));
     let position = (row?.max ?? -1) + 1;
     if (valid.length) {
       await db.insert(itineraryItems).values(
@@ -201,11 +222,98 @@ export const addPlacesToDay = action(
   },
 );
 
+/**
+ * Copies the stops of a day from one of the traveller's own past trips onto a day of this one.
+ * The places are saved into this trip as new rows — nothing is shared between trips — and the
+ * caller must be able to see the source and edit the destination.
+ */
+export const copyDayFromPastTrip = action(
+  z.object({ tripId: z.string(), dayId: z.string(), sourceDayId: z.string() }),
+  async ({ tripId, dayId, sourceDayId }, userId) => {
+    await requireTripAccess(tripId, userId, "edit");
+    await assertInTrip(tripId, { day: dayId });
+
+    const [source] = await db
+      .select({ tripId: itineraryDays.tripId })
+      .from(itineraryDays)
+      .where(eq(itineraryDays.id, sourceDayId))
+      .limit(1);
+    if (!source) throw new Error("That day no longer exists");
+    // Reading someone else's day is still a read of their trip.
+    await requireTripAccess(source.tripId, userId, "view");
+
+    const rows = await db
+      .select({ placeId: tripPlaces.placeId, notes: tripPlaces.notes, name: places.name })
+      .from(itineraryItems)
+      .innerJoin(tripPlaces, eq(tripPlaces.id, itineraryItems.tripPlaceId))
+      .innerJoin(places, eq(places.id, tripPlaces.placeId))
+      .where(and(eq(itineraryItems.dayId, sourceDayId), eq(itineraryItems.tripId, source.tripId)))
+      .orderBy(itineraryItems.position);
+    if (rows.length === 0) throw new Error("That day has no places to copy");
+
+    // Skip anything this trip already has, so copying twice does not duplicate the day.
+    const existing = await db
+      .select({ placeId: tripPlaces.placeId })
+      .from(tripPlaces)
+      .where(eq(tripPlaces.tripId, tripId));
+    const have = new Set(existing.map((e) => e.placeId));
+    const fresh = rows.filter((r) => !have.has(r.placeId));
+    if (fresh.length === 0) return { added: 0 };
+
+    const [listRow] = await db
+      .select({ max: max(tripPlaces.position) })
+      .from(tripPlaces)
+      .where(eq(tripPlaces.tripId, tripId));
+    let placePosition = (listRow?.max ?? -1) + 1;
+    const created = await db
+      .insert(tripPlaces)
+      .values(
+        fresh.map((r) => ({
+          tripId,
+          listId: null,
+          placeId: r.placeId,
+          notes: r.notes,
+          position: placePosition++,
+          addedBy: userId,
+        })),
+      )
+      .returning({ id: tripPlaces.id });
+
+    const [dayRow] = await db
+      .select({ max: max(itineraryItems.position) })
+      .from(itineraryItems)
+      .where(and(eq(itineraryItems.dayId, dayId), eq(itineraryItems.tripId, tripId)));
+    let itemPosition = (dayRow?.max ?? -1) + 1;
+    await db.insert(itineraryItems).values(
+      created.map((c) => ({
+        tripId,
+        dayId,
+        kind: "place" as const,
+        tripPlaceId: c.id,
+        position: itemPosition++,
+      })),
+    );
+
+    await db.insert(activities).values({
+      tripId,
+      actorId: userId,
+      type: "day.copied",
+      entityType: "itinerary_day",
+      entityId: dayId,
+      summary: `copied ${created.length} stops from a past trip`,
+    });
+    await touch(tripId);
+    await publishTripChange(tripId, { entity: "itinerary", id: dayId, actorId: userId });
+    return { added: created.length };
+  },
+);
+
 /** Computes and caches the travel legs for a day so the UI can show distance and time. */
 export const refreshDayLegs = action(
   z.object({ tripId: z.string(), dayId: z.string() }),
   async ({ tripId, dayId }, userId) => {
-    const access = await requireTripAccess(tripId, userId, "view");
+    // Each refresh can spend a handful of Routes calls, so it is an editor's action.
+    const access = await requireTripAccess(tripId, userId, "edit");
     const days = await getItinerary(tripId, access.trip.defaultTravelMode);
     const day = days.find((d) => d.id === dayId);
     if (!day) throw new Error("Day not found");
@@ -215,6 +323,7 @@ export const refreshDayLegs = action(
     const legs = await ensureSequenceLegs(
       stops.map((s) => s.place!.placeId),
       mode,
+      userId,
     );
     return { legs: legs.filter(Boolean).length };
   },
@@ -255,6 +364,7 @@ export const optimizeDay = action(
     const { matrix, estimated } = await buildDayMatrix(
       stops.map((s) => ({ lat: s.place!.lat, lng: s.place!.lng })),
       mode,
+      userId,
     );
     const indexOf = (itemId: string | null | undefined) =>
       itemId ? stops.findIndex((s) => s.id === itemId) : -1;

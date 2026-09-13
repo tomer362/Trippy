@@ -15,6 +15,20 @@
       "when": 1789234109564,
       "tag": "0001_invite_accepted_by",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789277844663,
+      "tag": "0002_trip_scope",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1789278999135,
+      "tag": "0003_rate_limits",
+      "breakpoints": true
     }
   ]
 }
